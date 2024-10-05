@@ -9,12 +9,23 @@
 #define endian_h
 #include <iostream>
 #include <type_traits>
-
+#include <vector>
 
 
 #pragma pack(push, 1)
 
 namespace endian {
+
+using bytes = std::vector<std::byte>;
+
+template <typename T>
+constexpr inline void toHead(T &head,char *input,bool is_nth);
+
+template <typename T>
+constexpr inline T toHead(const char*input);
+
+template <typename T,typename ...U>
+struct type_list;
 
 
 
@@ -54,11 +65,66 @@ struct translate {
 };
 
 
+template <typename LenType,typename Element>
+struct Array {
+    std::vector<Element> elements;
+    
+    Array(){}
+    Array(const char*p){
+        ntoh(p);
+    }
+    
+    size_t total_bytes(){
+        return sizeof(LenType);
+    }
+    
+   inline void ntoh(const char*p){
+       elements.clear();
+       size_t bytes = 0;
+       LenType size = translate<LenType>::nth(*(LenType*)p);
+       bytes += sizeof(LenType);
+       for (int i=0; i<size; i++) {
+           elements.emplace_back(toHead<Element>(p+bytes));
+           bytes += sizeof(Element);
+       }
+    }
+    
+    bytes hton(){
+        bytes datas(sizeof(LenType));
+        auto address = datas.data();
+        auto size = elements.size();
+        
+        *((LenType*)(address))  = translate<LenType>::htn(size);
+        
+        for (int i=0; i<size; i++) {
+            bytes tmp;
+            toHead(elements[i], (char*)&tmp, false);
+            datas.insert(datas.end(),tmp.begin(),tmp.end());
+        }
+        return datas;
+    }
+};
+
+
+template <typename ...T>
+struct is_type_Array_t :public std::false_type {
+    
+};
+
+template <typename LenType,typename Element>
+struct is_type_Array_t<Array<LenType, Element>> :public std::true_type {
+    
+};
+
+template <typename ...T>
+constexpr bool is_type_Array_t_v= is_type_Array_t<T...>::value;
+
+
+
+
 template <typename T>
 constexpr bool is_pod_struct_v=  std::is_class_v<T> && (!std::is_polymorphic_v<T>);///不含任何虚函数的结构体
 
-template <typename T,typename ...U>
-struct type_list;
 
 template <typename  T>
 std::false_type is_type_list_c(T);
@@ -79,29 +145,70 @@ std::true_type struct_has_Alias(H*);
 template <typename T>
 constexpr bool struct_has_Alias_v =  decltype(struct_has_Alias<T>((T*)nullptr))::value;
 
+///如果is_nth == true 则 input ----> head    ;   否则，head ----> input
 template <typename T>
-constexpr inline void toHead(T &head,const char*start,bool is_nth) {
+constexpr inline void toHead(T &head,char *input,bool is_nth) {
     using TranType = translate<T>;
     
-    if constexpr (is_type_list_c_v<T>) {
-        new (&head) T(start,is_nth);
+    if constexpr (is_type_Array_t_v<T>) {
+        if (is_nth) {
+            head.ntoh(input);
+        }else{
+            *((bytes*)input) = head.hton();
+        }
+    }else if constexpr (is_type_list_c_v<T>) {
+        if (is_nth) {
+            new (&head) T(input);
+        } else {
+            *((bytes*)input) = head.hton();
+        }
     }else if constexpr (is_pod_struct_v<T>){
         static_assert(struct_has_Alias_v<T>, "struct must contain Alias Type");
         static_assert(sizeof(T) == sizeof(typename T::Alias), "size not match");
-        new (&head) T::Alias(start,is_nth);
-    }else  if constexpr (std::is_bounded_array_v<T>) {
-        using Element = std::remove_all_extents_t<T>;///获取数组元素的类型
-        Element *dest = (Element*)&head;
-        const Element *source = (Element*)start;
-        constexpr int len = std::extent_v<T>;///只能处理一维数组，获取数组大小
-        for (int i=0; i<len; i++) {
-            new (dest++)  type_list<Element>((const char*)source++ ,is_nth);
+        if (is_nth) {
+            new (&head) (typename  T::Alias)(input);
+        }else{
+            *((bytes*)input) = head.hton();
         }
-    }else{
-        head = (is_nth ? TranType::nth(*((T*)start)) : TranType::htn(*((T*)start)));///基础类型
+    }else  if constexpr (std::is_array_v<T>) {
+        using Element = std::remove_all_extents_t<T>;///获取数组元素的类型
+        constexpr int len = std::extent_v<T>;///只能处理一维数组，获取数组大小
+        
+        if (is_nth) {
+            Element *dest = (Element*)&head;
+            const Element *source = (Element*)input;
+            for (int i=0; i<len; i++) {
+                new (dest++)  type_list<Element>((const char*)source++);
+            }
+        }else{
+            bytes data;
+            Element *source = (Element*)&head;
+            for (int i=0; i<len; i++) {
+                bytes tmp;
+                toHead(*(source++),(char*) &tmp,false);
+                data.insert(data.end(), tmp.begin(),tmp.end());
+            }
+            *((bytes*)input) = data;
+        }
+       
+    }else{///基础类型
+        if (is_nth) {
+            head = TranType::nth(*((T*)input));
+        }else{
+            bytes data(sizeof(T));
+            *((T*)data.data()) =  TranType::htn(head);
+            *((bytes*)input) = data;
+        }
     }
 }
 
+
+template <typename T>
+constexpr inline T toHead(const char*input) {
+    T head;
+    toHead(head,(char*) input, true);
+    return head;
+}
 
 template <typename T,typename ...U>
 struct type_list{
@@ -111,8 +218,20 @@ struct type_list{
     Trail trail;
     type_list(){}
     
-    type_list(const char*start,bool is_nth=true):trail(start + sizeof(head),is_nth){
-        toHead(head, start, is_nth);
+    type_list(const char*input):trail(input + sizeof(head)){
+        toHead(head, (char*)input, true);
+    }
+    
+    inline endian::bytes hton(){
+        endian::bytes data_head;
+        endian::bytes data_trail;
+        
+        toHead(head, (char*)&data_head, false);
+        toHead(trail, (char*)&data_trail, false);
+        
+        data_head.insert(data_head.end(), data_trail.begin(),data_trail.end());
+        
+        return data_head;
     }
 };
 
@@ -121,8 +240,14 @@ struct type_list<T>{
     T head;
     type_list(){}
     
-    type_list(const char*start,bool is_nth=true){
-        toHead(head, start, is_nth);
+    type_list(const char*input){
+        toHead(head, (char*)input, true);
+    }
+    
+    inline endian::bytes hton(){
+        endian::bytes data;
+        toHead(head, (char*) &data, false);
+        return data;
     }
 };
 
@@ -137,19 +262,19 @@ struct type_list<T>{
       using Alias = endian::type_list<T1,__VA_ARGS__>;\
       ClassName(){}\
 \
-     ClassName(const char*start){\
-        ntoh(start);\
+     ClassName(const char*input){\
+        ntoh(input);\
     }\
     \
-    inline void ntoh(const char*start){\
+    inline void ntoh(const char*input){\
         static_assert(endian::struct_has_Alias_v<ClassName>, "must contain type Alias within class");\
         static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
-        new (this) Alias(start);\
+        new (this) Alias(input);\
     }\
-    inline void hton(){\
+    inline endian::bytes hton(){\
         static_assert(endian::struct_has_Alias_v<ClassName>, "must contain type Alias within class");\
         static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
-        new (this) Alias((const char*)this,false);\
+        return ((Alias*)this)->hton();\
     }
 
 
