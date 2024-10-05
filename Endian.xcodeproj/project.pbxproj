@@ -25,6 +25,7 @@
 /* Begin PBXFileReference section */
 		64AE55C02CB162D300551AE0 /* Endian */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Endian; sourceTree = BUILT_PRODUCTS_DIR; };
 		64AE55C32CB162D300551AE0 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
+		64AE55CA2CB1642700551AE0 /* endian.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = endian.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +59,7 @@
 			isa = PBXGroup;
 			children = (
 				64AE55C32CB162D300551AE0 /* main.cpp */,
+				64AE55CA2CB1642700551AE0 /* endian.h */,
 			);
 			path = Endian;
 			sourceTree = "<group>";
