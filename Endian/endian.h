@@ -88,8 +88,8 @@ constexpr inline void toHead(T &head,const char*start,bool is_nth) {
     }else if constexpr (is_pod_struct_v<T>){
         static_assert(struct_has_Alias_v<T>, "struct must contain Alias Type");
         static_assert(sizeof(T) == sizeof(typename T::Alias), "size not match");
-        new (&head) T::Alias(start,is_nth);
-    }else  if constexpr (std::is_bounded_array_v<T>) {
+        new (&head) (typename  T::Alias)(start,is_nth);
+    }else  if constexpr (std::is_array_v<T>) {
         using Element = std::remove_all_extents_t<T>;///获取数组元素的类型
         Element *dest = (Element*)&head;
         const Element *source = (Element*)start;
