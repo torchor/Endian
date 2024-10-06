@@ -45,7 +45,7 @@ int main() {
             int64_t big[2];
             bool isOK;
             short len;
-            int str[4];
+            int str[5];
             int cc;
         };
         
@@ -68,7 +68,8 @@ int main() {
             endian::c_size_byte_t<TMP> KK(tmp);
             assert(KK.bytes_ctn() == sizeof(TMP));
         }
-//        tmp.big = 100;
+        tmp.big[0] = 100;
+        tmp.big[1] = 200;
         tmp.isOK = true;
         tmp.len = 6;
         for (int i=0; i< tmp.len - 1 ; i++) {
@@ -77,7 +78,7 @@ int main() {
         tmp.cc = 1000;
         
         DDD xxasdf(&tmp); ///CC没有取到，因为动态数组所占内存大小，不能用sizeof算出
-        
+        auto xjjsize = endian::size_byte(xxasdf.base64);
         {
             //endian::size_byte<DDD::Alias> KK( *((DDD::Alias*) &xxasdf)  );
             endian::c_size_byte_t<DDD> KK( xxasdf  );

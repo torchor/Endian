@@ -51,6 +51,18 @@ std::true_type struct_has_Alias(H*);
 template <typename T>
 constexpr bool struct_has_Alias_v =  decltype(struct_has_Alias<T>((T*)nullptr))::value;
 
+template <typename LenType,typename Element>
+struct Array;
+
+template <typename ...T>
+struct is_type_Array_t :public std::false_type {};
+
+template <typename LenType,typename Element>
+struct is_type_Array_t<Array<LenType, Element>> :public std::true_type {};
+
+template <typename ...T>
+constexpr bool is_type_Array_t_v= is_type_Array_t<T...>::value;
+
 
 
 template <typename T>
@@ -87,6 +99,9 @@ struct translate {
         return old;
     }
 };
+
+
+
 
 template <typename T>
 struct c_size_byte_t{
@@ -156,6 +171,8 @@ private:
 };
 
 
+
+
 template <typename T>
 size_t size_byte(T &&n){
     c_size_byte_t<T> tmp(n);
@@ -169,6 +186,12 @@ size_t size_byte(T &n){
     return tmp.bytes_ctn();
 }
 
+template <typename L, typename E, typename = std::enable_if_t<is_type_Array_t_v<Array<L, E>>>>
+size_t size_byte(Array<L, E> &n){
+    using U = Array<L, E>;
+    c_size_byte_t<U> tmp(n);
+    return tmp.bytes_ctn();
+}
 
 
 template <typename LenType,typename Element>
@@ -207,19 +230,6 @@ struct Array {
     }
 };
 
-
-template <typename ...T>
-struct is_type_Array_t :public std::false_type {
-    
-};
-
-template <typename LenType,typename Element>
-struct is_type_Array_t<Array<LenType, Element>> :public std::true_type {
-    
-};
-
-template <typename ...T>
-constexpr bool is_type_Array_t_v= is_type_Array_t<T...>::value;
 
 
 
