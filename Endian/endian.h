@@ -27,6 +27,30 @@ constexpr inline T endian_trans_router(const char*input);
 template <typename T,typename ...U>
 struct type_list;
 
+template <typename LenType,typename Element>
+struct Array;
+
+template <typename T>
+constexpr bool is_pod_struct_v=  std::is_class_v<T> && (!std::is_polymorphic_v<T>);///不含任何虚函数的结构体
+
+template <typename  T>
+std::false_type is_type_list_c(T);
+
+template <typename  ...T>
+std::true_type is_type_list_c(type_list<T...>*);
+
+template<typename T>
+constexpr bool is_type_list_c_v = decltype(is_type_list_c((T*)(nullptr)))::value;
+
+template <typename T>
+std::false_type struct_has_Alias(...);
+
+template <typename H, typename = std::enable_if_t<is_type_list_c_v<typename H::Alias>>>
+std::true_type struct_has_Alias(H*);
+
+template <typename T>
+constexpr bool struct_has_Alias_v =  decltype(struct_has_Alias<T>((T*)nullptr))::value;
+
 
 
 template <typename T>
@@ -64,6 +88,88 @@ struct translate {
     }
 };
 
+template <typename T>
+struct c_size_byte_t{
+    c_size_byte_t(T&t):_v(t){}
+    size_t bytes_ctn(){
+        return sizeof(T);
+    }
+private:
+    T &_v;
+};
+
+template <typename T,size_t N>
+struct c_size_byte_t<T[N]>{
+    using U = T[N];
+    c_size_byte_t(U &t):_v(t){}
+    size_t bytes_ctn(){
+        size_t total = 0;
+        for (int i=0; i<N; i++) {
+            total += c_size_byte_t<T>(_v[i]).bytes_ctn();
+        }
+        return total;
+    }
+private:
+    U &_v;
+};
+
+template <typename LenType,typename Element>
+struct c_size_byte_t<Array<LenType, Element>>{
+    using T = Array<LenType, Element>;
+    c_size_byte_t(T&t):_v(t){}
+    
+    size_t bytes_ctn(){
+        size_t total = sizeof(LenType);
+        for (auto &e : _v.elements) {
+            total += c_size_byte_t<Element>(e).bytes_ctn();
+        }
+        return total;
+    }
+private:
+    T &_v;
+};
+
+
+template <typename T,typename ...U>
+struct c_size_byte_t<type_list<T, U...>>{
+    using X = type_list<T, U...>;
+    
+    c_size_byte_t(X&t):_v(t){}
+    size_t bytes_ctn(){
+        return  c_size_byte_t<decltype(_v.head)>(_v.head).bytes_ctn() + c_size_byte_t<decltype(_v.trail)>(_v.trail).bytes_ctn();
+    }
+private:
+    X &_v;
+};
+
+
+template <typename T>
+struct c_size_byte_t<type_list<T>>{
+    using X = type_list<T>;
+    
+    c_size_byte_t(X&t):_v(t){}
+    size_t bytes_ctn(){
+        return c_size_byte_t<decltype(_v.head)>(_v.head).bytes_ctn();
+    }
+private:
+    X &_v;
+};
+
+
+template <typename T>
+size_t size_byte(T &&n){
+    c_size_byte_t<T> tmp(n);
+    return tmp.bytes_ctn();
+}
+
+template <typename T,typename = std::enable_if_t< is_pod_struct_v<T> && struct_has_Alias_v<T> && sizeof(T) == sizeof(typename T::Alias) >>
+size_t size_byte(T &n){
+    using U = typename  T::Alias;
+    c_size_byte_t<U> tmp( *((U*)&n) );
+    return tmp.bytes_ctn();
+}
+
+
 
 template <typename LenType,typename Element>
 struct Array {
@@ -74,10 +180,6 @@ struct Array {
         ntoh(p);
     }
     
-//    size_t total_bytes(){
-//        return sizeof(LenType);
-//    }
-    
    inline void ntoh(const char*p){
        elements.clear();
        size_t bytes = 0;
@@ -85,7 +187,7 @@ struct Array {
        bytes += sizeof(LenType);
        for (int i=0; i<size; i++) {
            elements.emplace_back(endian_trans_router<Element>(p+bytes));
-           bytes += sizeof(Element);
+           bytes += size_byte(elements.back());
        }
     }
     
@@ -121,30 +223,6 @@ constexpr bool is_type_Array_t_v= is_type_Array_t<T...>::value;
 
 
 
-
-template <typename T>
-constexpr bool is_pod_struct_v=  std::is_class_v<T> && (!std::is_polymorphic_v<T>);///不含任何虚函数的结构体
-
-
-template <typename  T>
-std::false_type is_type_list_c(T);
-
-template <typename  ...T>
-std::true_type is_type_list_c(type_list<T...>*);
-
-template<typename T>
-constexpr bool is_type_list_c_v = decltype(is_type_list_c((T*)(nullptr)))::value;
-
-
-template <typename T>
-std::false_type struct_has_Alias(...);
-
-template <typename H, typename = std::enable_if_t<is_type_list_c_v<typename H::Alias>>>
-std::true_type struct_has_Alias(H*);
-
-template <typename T>
-constexpr bool struct_has_Alias_v =  decltype(struct_has_Alias<T>((T*)nullptr))::value;
-
 ///如果is_nth == true 则 input ----> head    ;   否则，head ----> input
 template <typename T>
 constexpr inline void endian_trans_router(T &head,char *input,bool is_nth) {
@@ -175,10 +253,11 @@ constexpr inline void endian_trans_router(T &head,char *input,bool is_nth) {
         constexpr int len = std::extent_v<T>;///只能处理一维数组，获取数组大小
         
         if (is_nth) {
-            Element *dest = (Element*)&head;
-            const Element *source = (Element*)input;
+            auto dest = (Element*)&head;
+            auto source =  input;
             for (int i=0; i<len; i++) {
-                new (dest++)  type_list<Element>((const char*)source++);
+                new (dest++)  type_list<Element>((const char*)source);
+                source += size_byte(*(dest-1));
             }
         }else{
             bytes data;
@@ -218,14 +297,15 @@ struct type_list{
     Trail trail;
     type_list(){}
     
-    type_list(const char*input):trail(input + sizeof(head)){
+    type_list(const char*input){
         endian_trans_router(head, (char*)input, true);
+        new (&trail) Trail( input + size_byte(head) );
     }
     
     inline bytes hton(){
         bytes data_head;
         bytes data_trail;
-        
+
         endian_trans_router(head, (char*)&data_head, false);
         endian_trans_router(trail, (char*)&data_trail, false);
         

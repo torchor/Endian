@@ -34,9 +34,78 @@ struct AAA {
     IMPLEMENT_ENDIAN(AAA,decltype(isOk),decltype(alpha),decltype(age),decltype(sex))
 };
 
+//void aa(){
+//    int a;
+//    auto ss = endian:: size_byte(a);
+//}
 
 int main() {
-    {
+    {///
+        struct TMP{
+            int64_t big[2];
+            bool isOK;
+            short len;
+            int str[4];
+            int cc;
+        };
+        
+        TMP aa;
+        auto xx0 = endian::size_byte(aa);
+        
+        struct DDD {
+            int64_t big[2];
+            bool isOK;
+            
+            endian::Array<short, int> base64;
+            int cc;//动态数组后面， 后面还有元素，这个时候不行了？
+            
+            IMPLEMENT_ENDIAN(DDD,decltype(big),decltype(isOK),decltype(base64),decltype(cc))
+        };
+
+        TMP tmp;
+        
+        {
+            endian::c_size_byte_t<TMP> KK(tmp);
+            assert(KK.bytes_ctn() == sizeof(TMP));
+        }
+//        tmp.big = 100;
+        tmp.isOK = true;
+        tmp.len = 6;
+        for (int i=0; i< tmp.len - 1 ; i++) {
+            tmp.str[i] = 'A' + i;
+        }
+        tmp.cc = 1000;
+        
+        DDD xxasdf((const char*)&tmp); ///CC没有取到，因为动态数组所占内存大小，不能用sizeof算出
+        
+        {
+            //endian::size_byte<DDD::Alias> KK( *((DDD::Alias*) &xxasdf)  );
+            endian::c_size_byte_t<DDD> KK( xxasdf  );
+            auto xxa = KK.bytes_ctn();///43
+            ///
+           auto jjjj = endian::size_byte<DDD>(xxasdf);
+            
+//            assert(KK.bytes_ctn() == sizeof(TMP));
+        }
+        
+        auto data = xxasdf.hton();
+//        assert(data.size() == (sizeof(int64_t) + sizeof(bool) + sizeof(int) + 2 * sizeof(char) ));
+        TMP *p = (TMP*)data.data();
+        
+        DDD anew((const char*) p);
+        
+        printf("%d",anew.big);
+        
+    }
+    
+    {///Pass  When  动态数组作为最后一个元素，且动态数组元素没有嵌套动态数组
+        struct TMP{
+            int64_t big;
+            bool isOK;
+            int len;
+            char str[100];
+        };
+        
         struct DDD {
             int64_t big;
             bool isOK;
@@ -46,6 +115,24 @@ int main() {
             IMPLEMENT_ENDIAN(DDD,decltype(big),decltype(isOK),decltype(base64))
         };
 
+        TMP tmp;
+        tmp.big = 100;
+        tmp.isOK = true;
+        tmp.len = 4;
+        for (int i=0; i<tmp.len; i++) {
+            tmp.str[i] = 'A' + i;
+        }
+        
+        DDD xxasdf((const char*)&tmp);
+        
+        auto data = xxasdf.hton();
+        assert(data.size() == (sizeof(int64_t) + sizeof(bool) + sizeof(int) + 2 * sizeof(char) ));
+        TMP *p = (TMP*)data.data();
+        
+        DDD anew((const char*) p);
+        
+        printf("%d",anew.big);
+        
     }
     
     AAA aa{};
