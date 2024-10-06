@@ -222,9 +222,9 @@ struct type_list{
         toHead(head, (char*)input, true);
     }
     
-    inline endian::bytes hton(){
-        endian::bytes data_head;
-        endian::bytes data_trail;
+    inline bytes hton(){
+        bytes data_head;
+        bytes data_trail;
         
         toHead(head, (char*)&data_head, false);
         toHead(trail, (char*)&data_trail, false);
@@ -244,8 +244,8 @@ struct type_list<T>{
         toHead(head, (char*)input, true);
     }
     
-    inline endian::bytes hton(){
-        endian::bytes data;
+    inline bytes hton(){
+        bytes data;
         toHead(head, (char*) &data, false);
         return data;
     }
