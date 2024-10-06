@@ -342,14 +342,14 @@ struct type_list<T>{
       using Alias = endian::type_list<T1,__VA_ARGS__>;\
       ClassName(){}\
 \
-     ClassName(const char*input){\
+     ClassName(const void*input){\
         ntoh(input);\
     }\
     \
-    inline void ntoh(const char*input){\
+    inline void ntoh(const void*input){\
         static_assert(endian::struct_has_Alias_v<ClassName>, "must contain type Alias within class");\
         static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
-        new (this) Alias(input);\
+        new (this) Alias((const char*)input);\
     }\
     inline endian::bytes hton(){\
         static_assert(endian::struct_has_Alias_v<ClassName>, "must contain type Alias within class");\

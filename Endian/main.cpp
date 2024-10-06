@@ -76,7 +76,7 @@ int main() {
         }
         tmp.cc = 1000;
         
-        DDD xxasdf((const char*)&tmp); ///CC没有取到，因为动态数组所占内存大小，不能用sizeof算出
+        DDD xxasdf(&tmp); ///CC没有取到，因为动态数组所占内存大小，不能用sizeof算出
         
         {
             //endian::size_byte<DDD::Alias> KK( *((DDD::Alias*) &xxasdf)  );
@@ -89,7 +89,7 @@ int main() {
         }
         
         auto data = xxasdf.hton();
-//        assert(data.size() == (sizeof(int64_t) + sizeof(bool) + sizeof(int) + 2 * sizeof(char) ));
+        assert(data.size() == (sizeof(int64_t) + sizeof(bool) + sizeof(int) + 2 * sizeof(char) ));
         TMP *p = (TMP*)data.data();
         
         DDD anew((const char*) p);
