@@ -74,9 +74,9 @@ struct Array {
         ntoh(p);
     }
     
-    size_t total_bytes(){
-        return sizeof(LenType);
-    }
+//    size_t total_bytes(){
+//        return sizeof(LenType);
+//    }
     
    inline void ntoh(const char*p){
        elements.clear();
@@ -92,7 +92,7 @@ struct Array {
     bytes hton(){
         bytes datas(sizeof(LenType));
         auto address = datas.data();
-        auto size = elements.size();
+        LenType size = static_cast<LenType>(elements.size());
         
         *((LenType*)(address))  = translate<LenType>::htn(size);
         
