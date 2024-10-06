@@ -35,22 +35,19 @@ struct AAA {
 };
 
 
-
-struct DDD {
-    int64_t big;
-    bool isOK;
-    
-    endian::Array<int, char> base64;
-    
-    IMPLEMENT_ENDIAN(DDD,decltype(big),decltype(isOK),decltype(base64))
-};
-
-
-
-
-
 int main() {
-   
+    {
+        struct DDD {
+            int64_t big;
+            bool isOK;
+            
+            endian::Array<int, char> base64;
+            
+            IMPLEMENT_ENDIAN(DDD,decltype(big),decltype(isOK),decltype(base64))
+        };
+
+    }
+    
     AAA aa{};
     {///OK
 //        AAA aa{};

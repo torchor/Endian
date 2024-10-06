@@ -19,10 +19,10 @@ namespace endian {
 using bytes = std::vector<std::byte>;
 
 template <typename T>
-constexpr inline void toHead(T &head,char *input,bool is_nth);
+constexpr inline void endianTransRouter(T &head,char *input,bool is_nth);
 
 template <typename T>
-constexpr inline T toHead(const char*input);
+constexpr inline T endianTransRouter(const char*input);
 
 template <typename T,typename ...U>
 struct type_list;
@@ -84,7 +84,7 @@ struct Array {
        LenType size = translate<LenType>::nth(*(LenType*)p);
        bytes += sizeof(LenType);
        for (int i=0; i<size; i++) {
-           elements.emplace_back(toHead<Element>(p+bytes));
+           elements.emplace_back(endianTransRouter<Element>(p+bytes));
            bytes += sizeof(Element);
        }
     }
@@ -98,7 +98,7 @@ struct Array {
         
         for (int i=0; i<size; i++) {
             bytes tmp;
-            toHead(elements[i], (char*)&tmp, false);
+            endianTransRouter(elements[i], (char*)&tmp, false);
             datas.insert(datas.end(),tmp.begin(),tmp.end());
         }
         return datas;
@@ -147,7 +147,7 @@ constexpr bool struct_has_Alias_v =  decltype(struct_has_Alias<T>((T*)nullptr)):
 
 ///如果is_nth == true 则 input ----> head    ;   否则，head ----> input
 template <typename T>
-constexpr inline void toHead(T &head,char *input,bool is_nth) {
+constexpr inline void endianTransRouter(T &head,char *input,bool is_nth) {
     using TranType = translate<T>;
     
     if constexpr (is_type_Array_t_v<T>) {
@@ -185,7 +185,7 @@ constexpr inline void toHead(T &head,char *input,bool is_nth) {
             Element *source = (Element*)&head;
             for (int i=0; i<len; i++) {
                 bytes tmp;
-                toHead(*(source++),(char*) &tmp,false);
+                endianTransRouter(*(source++),(char*) &tmp,false);
                 data.insert(data.end(), tmp.begin(),tmp.end());
             }
             *((bytes*)input) = data;
@@ -204,9 +204,9 @@ constexpr inline void toHead(T &head,char *input,bool is_nth) {
 
 
 template <typename T>
-constexpr inline T toHead(const char*input) {
+constexpr inline T endianTransRouter(const char*input) {
     T head;
-    toHead(head,(char*) input, true);
+    endianTransRouter(head,(char*) input, true);
     return head;
 }
 
@@ -219,15 +219,15 @@ struct type_list{
     type_list(){}
     
     type_list(const char*input):trail(input + sizeof(head)){
-        toHead(head, (char*)input, true);
+        endianTransRouter(head, (char*)input, true);
     }
     
     inline bytes hton(){
         bytes data_head;
         bytes data_trail;
         
-        toHead(head, (char*)&data_head, false);
-        toHead(trail, (char*)&data_trail, false);
+        endianTransRouter(head, (char*)&data_head, false);
+        endianTransRouter(trail, (char*)&data_trail, false);
         
         data_head.insert(data_head.end(), data_trail.begin(),data_trail.end());
         
@@ -241,12 +241,12 @@ struct type_list<T>{
     type_list(){}
     
     type_list(const char*input){
-        toHead(head, (char*)input, true);
+        endianTransRouter(head, (char*)input, true);
     }
     
     inline bytes hton(){
         bytes data;
-        toHead(head, (char*) &data, false);
+        endianTransRouter(head, (char*) &data, false);
         return data;
     }
 };
