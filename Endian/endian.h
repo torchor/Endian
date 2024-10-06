@@ -174,20 +174,20 @@ private:
 
 
 template <typename T>
-size_t size_byte(T &&n){
+inline size_t size_byte(T &&n){
     c_size_byte_t<T> tmp(n);
     return tmp.bytes_ctn();
 }
 
 template <typename T,typename = std::enable_if_t< is_pod_struct_v<T> && struct_has_Alias_v<T> && sizeof(T) == sizeof(typename T::Alias) >>
-size_t size_byte(T &n){
+inline size_t size_byte(T &n){
     using U = typename  T::Alias;
     c_size_byte_t<U> tmp( *((U*)&n) );
     return tmp.bytes_ctn();
 }
 
 template <typename L, typename E, typename = std::enable_if_t<is_type_Array_t_v<Array<L, E>>>>
-size_t size_byte(Array<L, E> &n){
+inline size_t size_byte(Array<L, E> &n){
     using U = Array<L, E>;
     c_size_byte_t<U> tmp(n);
     return tmp.bytes_ctn();
