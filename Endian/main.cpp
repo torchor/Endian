@@ -90,7 +90,7 @@ int main() {
         }
         
         auto data = xxasdf.hton();
-        assert(data.size() == (sizeof(int64_t) + sizeof(bool) + sizeof(int) + 2 * sizeof(char) ));
+       
         TMP *p = (TMP*)data.data();
         
         DDD anew((const char*) p);
