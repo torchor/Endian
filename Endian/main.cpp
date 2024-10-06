@@ -65,7 +65,7 @@ int main() {
         TMP tmp;
         
         {
-            endian::c_size_byte_t<TMP> KK(tmp);
+            endian::__c_size_byte_t__<TMP> KK(tmp);
             assert(KK.bytes_ctn() == sizeof(TMP));
         }
         tmp.big[0] = 100;
@@ -81,7 +81,7 @@ int main() {
         auto xjjsize = endian::size_byte(xxasdf.base64);
         {
             //endian::size_byte<DDD::Alias> KK( *((DDD::Alias*) &xxasdf)  );
-            endian::c_size_byte_t<DDD> KK( xxasdf  );
+            endian::__c_size_byte_t__<DDD> KK( xxasdf  );
             auto xxa = KK.bytes_ctn();///43
             ///
            auto jjjj = endian::size_byte<DDD>(xxasdf);

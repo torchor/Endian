@@ -104,8 +104,8 @@ struct translate {
 
 
 template <typename T>
-struct c_size_byte_t{
-    c_size_byte_t(T&t):_v(t){}
+struct __c_size_byte_t__{
+    __c_size_byte_t__(T&t):_v(t){}
     size_t bytes_ctn(){
         return sizeof(T);
     }
@@ -114,13 +114,13 @@ private:
 };
 
 template <typename T,size_t N>
-struct c_size_byte_t<T[N]>{
+struct __c_size_byte_t__<T[N]>{
     using U = T[N];
-    c_size_byte_t(U &t):_v(t){}
+    __c_size_byte_t__(U &t):_v(t){}
     size_t bytes_ctn(){
         size_t total = 0;
         for (int i=0; i<N; i++) {
-            total += c_size_byte_t<T>(_v[i]).bytes_ctn();
+            total += __c_size_byte_t__<T>(_v[i]).bytes_ctn();
         }
         return total;
     }
@@ -129,14 +129,14 @@ private:
 };
 
 template <typename LenType,typename Element>
-struct c_size_byte_t<Array<LenType, Element>>{
+struct __c_size_byte_t__<Array<LenType, Element>>{
     using T = Array<LenType, Element>;
-    c_size_byte_t(T&t):_v(t){}
+    __c_size_byte_t__(T&t):_v(t){}
     
     size_t bytes_ctn(){
         size_t total = sizeof(LenType);
         for (auto &e : _v.elements) {
-            total += c_size_byte_t<Element>(e).bytes_ctn();
+            total += __c_size_byte_t__<Element>(e).bytes_ctn();
         }
         return total;
     }
@@ -146,12 +146,12 @@ private:
 
 
 template <typename T,typename ...U>
-struct c_size_byte_t<type_list<T, U...>>{
+struct __c_size_byte_t__<type_list<T, U...>>{
     using X = type_list<T, U...>;
     
-    c_size_byte_t(X&t):_v(t){}
+    __c_size_byte_t__(X&t):_v(t){}
     size_t bytes_ctn(){
-        return  c_size_byte_t<decltype(_v.head)>(_v.head).bytes_ctn() + c_size_byte_t<decltype(_v.trail)>(_v.trail).bytes_ctn();
+        return  __c_size_byte_t__<decltype(_v.head)>(_v.head).bytes_ctn() + __c_size_byte_t__<decltype(_v.trail)>(_v.trail).bytes_ctn();
     }
 private:
     X &_v;
@@ -159,12 +159,12 @@ private:
 
 
 template <typename T>
-struct c_size_byte_t<type_list<T>>{
+struct __c_size_byte_t__<type_list<T>>{
     using X = type_list<T>;
     
-    c_size_byte_t(X&t):_v(t){}
+    __c_size_byte_t__(X&t):_v(t){}
     size_t bytes_ctn(){
-        return c_size_byte_t<decltype(_v.head)>(_v.head).bytes_ctn();
+        return __c_size_byte_t__<decltype(_v.head)>(_v.head).bytes_ctn();
     }
 private:
     X &_v;
@@ -175,21 +175,21 @@ private:
 
 template <typename T>
 inline size_t size_byte(T &&n){
-    c_size_byte_t<T> tmp(n);
+    __c_size_byte_t__<T> tmp(n);
     return tmp.bytes_ctn();
 }
 
 template <typename T,typename = std::enable_if_t< is_pod_struct_v<T> && struct_has_Alias_v<T> && sizeof(T) == sizeof(typename T::Alias) >>
 inline size_t size_byte(T &n){
     using U = typename  T::Alias;
-    c_size_byte_t<U> tmp( *((U*)&n) );
+    __c_size_byte_t__<U> tmp( *((U*)&n) );
     return tmp.bytes_ctn();
 }
 
 template <typename L, typename E, typename = std::enable_if_t<is_type_Array_t_v<Array<L, E>>>>
 inline size_t size_byte(Array<L, E> &n){
     using U = Array<L, E>;
-    c_size_byte_t<U> tmp(n);
+    __c_size_byte_t__<U> tmp(n);
     return tmp.bytes_ctn();
 }
 
