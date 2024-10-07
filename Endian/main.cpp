@@ -1,6 +1,6 @@
 #include <iostream>
 #include "endian.h"
-#include <cassert>
+
 
 #pragma pack(push, 1)
 

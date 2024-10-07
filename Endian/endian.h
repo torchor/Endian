@@ -10,7 +10,7 @@
 #include <iostream>
 #include <type_traits>
 #include <vector>
-
+#include <cassert>
 
 #pragma pack(push, 1)
 
@@ -236,6 +236,7 @@ struct Array {
 ///如果is_nth == true 则 input ----> head    ;   否则，head ----> input
 template <typename T>
 constexpr inline void endian_trans_router(T &head,char *input,bool is_nth) {
+    assert(input != nullptr);
     using TranType = translate<T>;
     
     if constexpr (is_type_Array_t_v<T>) {
