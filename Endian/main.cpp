@@ -10,7 +10,7 @@ struct TTTes0 {
     int64_t age;
     short sex;
 
-    IMPLEMENT_ENDIAN(TTTes0,decltype(isOk),decltype(alpha),decltype(age),decltype(sex))
+    IMPLEMENT_ENDIAN(TTTes0,isOk,alpha,age,sex)
 };
 
 
@@ -31,13 +31,8 @@ struct AAA {
     int64_t age;
     short sex;
 
-    IMPLEMENT_ENDIAN(AAA,decltype(isOk),decltype(alpha),decltype(age),decltype(sex))
+    IMPLEMENT_ENDIAN(AAA,isOk,alpha,age,sex)
 };
-
-//void aa(){
-//    int a;
-//    auto ss = endian:: size_byte(a);
-//}
 
 int main() {
     {///
@@ -59,14 +54,15 @@ int main() {
             endian::Array<short, int> base64;
             int cc;//动态数组后面， 后面还有元素，这个时候不行了？
             
-            IMPLEMENT_ENDIAN(DDD,decltype(big),decltype(isOK),decltype(base64),decltype(cc))
+            IMPLEMENT_ENDIAN(DDD,big,isOK,base64,cc)
         };
 
         TMP tmp;
+        assert(endian::size_byte(tmp) == sizeof(TMP));
         
         {
-            endian::__c_size_byte_t__<TMP> KK(tmp);
-            assert(KK.bytes_ctn() == sizeof(TMP));
+//            ;//<TMP> KK(tmp);
+            
         }
         tmp.big[0] = 100;
         tmp.big[1] = 200;
@@ -113,7 +109,7 @@ int main() {
             
             endian::Array<int, char> base64;
             
-            IMPLEMENT_ENDIAN(DDD,decltype(big),decltype(isOK),decltype(base64))
+            IMPLEMENT_ENDIAN(DDD,big,isOK,base64)
         };
 
         TMP tmp;
@@ -206,7 +202,7 @@ int main() {
                 return  true;
             }
             
-            IMPLEMENT_ENDIAN(UYH,decltype(aaa),decltype(cc),decltype(dd),decltype(xx))
+            IMPLEMENT_ENDIAN(UYH,aaa,cc,dd,xx)
         };
         
         struct TEST{
@@ -270,7 +266,7 @@ int main() {
                 return  true;
             }
             
-            IMPLEMENT_ENDIAN(AHHH, decltype(isOk),decltype(alpha),decltype(age),decltype(xx))
+            IMPLEMENT_ENDIAN(AHHH, isOk,alpha,age,xx)
         };
         
         AHHH adsaf{};
@@ -298,7 +294,7 @@ int main() {
         
     }
     
-    {//Pass ，含结构体、type_list
+    {///pass ，含结构体、type_list
         struct CCC {
             bool isOk[2];
             char cc[2];
@@ -315,7 +311,7 @@ int main() {
                 return  true;
             }
             
-            IMPLEMENT_ENDIAN(CCC,decltype(isOk),decltype(cc),decltype(big),decltype(aa),decltype(tyy))
+            IMPLEMENT_ENDIAN(CCC,isOk,cc,big,aa,tyy)
         };
         
         CCC kcccc{};
