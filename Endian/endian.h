@@ -372,8 +372,8 @@ struct type_list<T>{
 #define __MACRO__ARG__COUNT__(_0, _1, _2, _3, _4, _5, _6, _7, _8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19, COUNT, ...)  COUNT
 #define _MACROARGCOUNT_(...) __MACRO__ARG__COUNT__(__VA_ARGS__,20,19,18,17,16,15,14,13,12,11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
-#define __Concat__(A,B) ____Concat____(A,B)
-#define ____Concat____(A,B)   A##B
+#define __CONCAT__(A,B) ____CONCAT____(A,B)
+#define ____CONCAT____(A,B)   A##B
 
 
 #define _ADD_DECLTYPE_1(_1)                        decltype(_1)
@@ -384,7 +384,7 @@ struct type_list<T>{
 #define _ADD_DECLTYPE_6(_1,_2,_3,_4,_5,_6)         _ADD_DECLTYPE_5(_1,_2,_3,_4,_5),decltype(_6)
 
 
-#define __CONCATFUNCTION__(...)  __Concat__(_ADD_DECLTYPE_ , _MACROARGCOUNT_(__VA_ARGS__))
+#define __CONCATFUNCTION__(...)  __CONCAT__(_ADD_DECLTYPE_ , _MACROARGCOUNT_(__VA_ARGS__))
 
 #define IMPLEMENT_ENDIAN(CLS,...)  __IMPLEMENT__ENDIAN__(CLS,__CONCATFUNCTION__(__VA_ARGS__)(__VA_ARGS__))
 
