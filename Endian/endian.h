@@ -376,12 +376,16 @@ struct type_list<T>{
 #define ____CONCAT____(A,B)   A##B
 
 
-#define _ADD_DECLTYPE_1(_1)                        decltype(_1)
-#define _ADD_DECLTYPE_2(_1,_2)                     _ADD_DECLTYPE_1(_1),decltype(_2)
-#define _ADD_DECLTYPE_3(_1,_2,_3)                  _ADD_DECLTYPE_2(_1,_2),decltype(_3)
-#define _ADD_DECLTYPE_4(_1,_2,_3,_4)               _ADD_DECLTYPE_3(_1,_2,_3),decltype(_4)
-#define _ADD_DECLTYPE_5(_1,_2,_3,_4,_5)            _ADD_DECLTYPE_4(_1,_2,_3,_4),decltype(_5)
-#define _ADD_DECLTYPE_6(_1,_2,_3,_4,_5,_6)         _ADD_DECLTYPE_5(_1,_2,_3,_4,_5),decltype(_6)
+#define _ADD_DECLTYPE_1(_1)                                                            decltype(_1)
+#define _ADD_DECLTYPE_2(_1,_2)                                        _ADD_DECLTYPE_1(_1),decltype(_2)
+#define _ADD_DECLTYPE_3(_1,_2,_3)                                     _ADD_DECLTYPE_2(_1,_2),decltype(_3)
+#define _ADD_DECLTYPE_4(_1,_2,_3,_4)                                  _ADD_DECLTYPE_3(_1,_2,_3),decltype(_4)
+#define _ADD_DECLTYPE_5(_1,_2,_3,_4,_5)                               _ADD_DECLTYPE_4(_1,_2,_3,_4),decltype(_5)
+#define _ADD_DECLTYPE_6(_1,_2,_3,_4,_5,_6)                            _ADD_DECLTYPE_5(_1,_2,_3,_4,_5),decltype(_6)
+#define _ADD_DECLTYPE_7(_1,_2,_3,_4,_5,_6,_7)                         _ADD_DECLTYPE_6(_1,_2,_3,_4,_5,_6),decltype(_7)
+#define _ADD_DECLTYPE_8(_1,_2,_3,_4,_5,_6,_7,_8)                      _ADD_DECLTYPE_7(_1,_2,_3,_4,_5,_6,_7),decltype(_8)
+#define _ADD_DECLTYPE_9(_1,_2,_3,_4,_5,_6,_7,_8,_9)                   _ADD_DECLTYPE_8(_1,_2,_3,_4,_5,_6,_7,_8),decltype(_9)
+#define _ADD_DECLTYPE_10(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10)              _ADD_DECLTYPE_9(_1,_2,_3,_4,_5,_6,_7,_8,_9),decltype(_10)
 
 
 #define __CONCATFUNCTION__(...)  __CONCAT__(_ADD_DECLTYPE_ , _MACROARGCOUNT_(__VA_ARGS__))
