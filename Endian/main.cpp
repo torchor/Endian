@@ -18,10 +18,7 @@ public:
     using timer_id = u_int64_t;///高32位表示距离base_time时间戳，低32位区分同一个时间，的不同Timer
     using callback = std::function<bool(void)>;///返回true，定时器继续，返回false，取消定时器
     
-    struct node{
-        callback call;
-        std::chrono::milliseconds timeout;///每隔多久触发一次
-    };
+  
     
     timer():base_time(std::chrono::steady_clock::now()),id(0){
         thread = std::thread([this](){
@@ -69,6 +66,11 @@ public:
         }
     }
 private:
+    struct node{
+        callback call;
+        std::chrono::milliseconds timeout;///每隔多久触发一次
+    };
+    
     void create_timer(std::chrono::milliseconds timeout,callback call,bool lock){
         auto expired = std::chrono::steady_clock::now() - base_time + timeout;
         u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
@@ -87,7 +89,7 @@ private:
     }
     
     
-private:
+
     std::mutex mutex;
     std::condition_variable condition;
     
