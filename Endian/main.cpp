@@ -1,340 +1,153 @@
+//
+//  main.cpp
+//  C++Timer
+//
+//  Created by goggle on 2024/10/19.
+//
+
 #include <iostream>
-#include "endian.h"
+#include <map>
+#include <functional>
+#include <thread>
+#include <chrono>
+#include <iomanip>
+#include <ctime>
 
-
-#pragma pack(push, 1)
-
-struct TTTes0 {
-    bool isOk;
-    char alpha;
-    int64_t age;
-    short sex;
-
-    IMPLEMENT_ENDIAN(TTTes0,isOk,alpha,age,sex)
-};
-
-
-struct BBB {
-    bool isOk;
-    char alpha;
-    int64_t age;
-    short sex;
+class timer{
+public:
+    using timer_id = u_int64_t;///高32位表示距离base_time时间戳，低32位区分同一个时间，的不同Timer
+    using callback = std::function<bool(void)>;///返回true，定时器继续，返回false，取消定时器
     
-    endian:: Array<int16_t, char> list;
-};
+    struct node{
+        callback call;
+        std::chrono::milliseconds timeout;///每隔多久触发一次
+    };
+    
+    timer():base_time(std::chrono::steady_clock::now()),id(0){
+        thread = std::thread([this](){
+            std::unique_lock<std::mutex> lock(mutex);
+            do {
+                condition.wait(lock,[this](){
+                    return !map.empty();
+                });
+    tackle:
+                auto first = map.begin();
+                auto timerId = first->first;
+                auto nd = first->second;
+                
+                auto expire_time = base_time + std::chrono::milliseconds(timerId >> (sizeof(id)*8));
 
-
-
-struct AAA {
-    bool isOk;
-    char alpha;
-    int64_t age;
-    short sex;
-
-    IMPLEMENT_ENDIAN(AAA,isOk,alpha,age,sex)
-};
-
-int main() {
-    {///
-        struct TMP{
-            int64_t big[2];
-            bool isOK;
-            short len;
-            int str[5];
-            int cc;
-        };
-        
-        TMP aa;
-        auto xx0 = endian::size_byte(aa);
-        
-        struct DDD {
-            int64_t big[2];
-            bool isOK;
-            
-            endian::Array<short, int> base64;
-            int cc;//动态数组后面， 后面还有元素，这个时候不行了？
-            
-            IMPLEMENT_ENDIAN(DDD,big,isOK,base64,cc)
-        };
-
-        TMP tmp;
-        assert(endian::size_byte(tmp) == sizeof(TMP));
-        
+                condition.wait_until(lock, expire_time);
+                if (map.empty()) {
+                    continue;
+                }
+                
+                if (timerId != map.begin()->first) {///醒来的时候，之前的定时器已经被删除了，开始处理下一个
+                    goto tackle;
+                }
+                
+                auto should_repeat =  first->second.call();
+                map.erase(timerId);
+                if (should_repeat) {///setup next fire time
+                    create_timer(nd.timeout, nd.call,false);
+                }
+                
+            } while (true);
+        });
+    }
+    
+    
+   
+    timer_id scheduledTimer(std::chrono::milliseconds timeout,callback call){
+        timer_id newId = create_timer(timeout,call,true);
+        condition.notify_one();
+        return  newId;
+    }
+    
+    void del_timer(timer_id id){
         {
-//            ;//<TMP> KK(tmp);
-            
+            std::lock_guard<std::mutex> guard(mutex);
+            map.erase(id);
         }
-        tmp.big[0] = 100;
-        tmp.big[1] = 200;
-        tmp.isOK = true;
-        tmp.len = 6;
-        for (int i=0; i< tmp.len - 1 ; i++) {
-            tmp.str[i] = 'A' + i;
+        condition.notify_one();
+    }
+    
+    ~timer(){
+        if (thread.joinable()) {
+            thread.join();
         }
-        tmp.cc = 1000;
+    }
+private:
+    timer_id create_timer(std::chrono::milliseconds timeout,callback call,bool lock){
+        auto expired = std::chrono::steady_clock::now() - base_time + timeout;
+        u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
+        id ++;
+        timer_id newId = (milliseconds << (sizeof(id)*8)) | id;
+        node nd;
+        nd.timeout = timeout;
+        nd.call = call;
         
-        DDD xxasdf(&tmp); ///CC没有取到，因为动态数组所占内存大小，不能用sizeof算出
-        auto xjjsize = endian::size_byte(xxasdf.base64);
-        {
-            //endian::size_byte<DDD::Alias> KK( *((DDD::Alias*) &xxasdf)  );
-            endian::__c_size_byte_t__<DDD> KK( xxasdf  );
-            auto xxa = KK.bytes_ctn();///43
-            ///
-           auto jjjj = endian::size_byte<DDD>(xxasdf);
-            
-//            assert(KK.bytes_ctn() == sizeof(TMP));
+        if (lock) {
+            std::lock_guard<std::mutex> guard(mutex);
+            map[newId] = nd;
+        }else{
+            map[newId] = nd;
         }
-        
-        auto data = xxasdf.hton();
        
-        TMP *p = (TMP*)data.data();
-        
-        DDD anew((const char*) p);
-        
-        printf("%d",anew.big);
-        
+        return newId;
     }
     
-    {///Pass  When  动态数组作为最后一个元素，且动态数组元素没有嵌套动态数组
-        struct TMP{
-            int64_t big;
-            bool isOK;
-            int len;
-            char str[100];
-        };
-        
-        struct DDD {
-            int64_t big;
-            bool isOK;
-            
-            endian::Array<int, char> base64;
-            
-            IMPLEMENT_ENDIAN(DDD,big,isOK,base64)
-        };
+    
+private:
+    std::mutex mutex;
+    std::condition_variable condition;
+    
+    std::thread thread;
+    std::map<timer_id,node> map;///自动按时间排序
+    
+    const std::chrono::time_point<std::chrono::steady_clock> base_time;
+    u_int16_t id;///一直递增，避免同一时间生成的key 一样
+};
 
-        TMP tmp;
-        tmp.big = 100;
-        tmp.isOK = true;
-        tmp.len = 4;
-        for (int i=0; i<tmp.len; i++) {
-            tmp.str[i] = 'A' + i;
-        }
-        
-        DDD xxasdf((const char*)&tmp);
-        
-        auto data = xxasdf.hton();
-        assert(data.size() == (sizeof(int64_t) + sizeof(bool) + sizeof(int) + 2 * sizeof(char) ));
-        TMP *p = (TMP*)data.data();
-        
-        DDD anew((const char*) p);
-        
-        printf("%d",anew.big);
-        
-    }
-    
-    AAA aa{};
-    {///OK
-//        AAA aa{};
-        aa.isOk = true;
-        aa.alpha = 'G';
-        aa.age = 25;
-        aa.sex = 10;
-        
-//        aa.hton();
-//        
-//        aa.ntoh((const char*) &aa);
-//        
-//        aa.isOk = false;
-    }
-    
-    {///Pass
-        struct TEST{
-            char len;
-            float str[100];
-        };
 
-        
-        TEST tesaaa;
-        tesaaa.len = 80;
-        for (int i=0; i<tesaaa.len; i++) {
-            tesaaa.str[i] = 10 * (i+1);
-        }
-        
-        
-        using L = decltype(TEST::len);
-        using E = std::remove_pointer_t< std::decay_t< decltype( TEST::str)> >;
-        using AY = endian:: Array<L, E>;
-        AY list{(const char*)&tesaaa};
-        
-        assert(list.elements.size() == endian::translate<L>::nth(tesaaa.len));
-        
-        for (int i=0; i<list.elements.size(); i++) {
-            assert(endian::translate<E>::nth(tesaaa.str[i])  == list.elements[i]);
-        }
-        
-        auto net = list.hton();
-        
-        assert(net.size() == sizeof(L) + list.elements.size() * sizeof(E) );
-        
-        TEST *p = (TEST*)net.data();
-        
-        
-        assert(p->len == tesaaa.len);
-        for (int i=0; i<list.elements.size(); i++) {
-            assert(p->str[i] == tesaaa.str[i]);
-        }
-    }
-    
+
+int main(int argc, const char * argv[]) {
+    timer t{};
     
     {
-        struct UYH{
-            int aaa[2];
-            bool cc;
-            short dd;
-            char xx;
-            
-            bool operator == (const UYH & other){
-                for (int i=0; i<sizeof(UYH); i++) {
-                    if ( *(((char*)this) + i) != *(((char*)&other) + i) ) {
-                        return false;
-                    }
-                }
-                return  true;
-            }
-            
-            IMPLEMENT_ENDIAN(UYH,aaa,cc,dd,xx)
-        };
+        int i = 0;
         
-        struct TEST{
-            char len;
-            UYH str[100];
-        };
+        t.scheduledTimer(std::chrono::seconds(10), [&](){
+               auto now = std::chrono::system_clock::now();
+               std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+               auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+               std::tm* local_time = std::localtime(&now_time_t);
 
-        
-        TEST tesaaa;
-        tesaaa.len = 80;
-        for (int i=0; i<tesaaa.len; i++) {
-            UYH tmp;
-            tmp.aaa[0] = i*21;
-            tmp.aaa[1] = i*43;
-            tmp.cc = true;
-            tmp.dd = 40;
-            tmp.xx = 'D';
-            tesaaa.str[i] = tmp;
-        }
-        
-        
-        using L = decltype(TEST::len);
-        using E = std::remove_pointer_t< std::decay_t< decltype( TEST::str)> >;
-        using AY = endian:: Array<L, E>;
-        AY list{(const char*)&tesaaa};
-        
-        assert(list.elements.size() == endian::translate<L>::nth(tesaaa.len));
-        
-        for (int i=0; i<list.elements.size(); i++) {
-            assert(endian::translate<int>::nth(tesaaa.str[i].aaa[0])  == list.elements[i].aaa[0]);
-            assert(endian::translate<int>::nth(tesaaa.str[i].aaa[1])  == list.elements[i].aaa[1]);
-        }
-        
-        auto net = list.hton();
-        
-        assert(net.size() == sizeof(L) + list.elements.size() * sizeof(E) );
-        
-        TEST *p = (TEST*)net.data();
-        
-        
-        assert(p->len == tesaaa.len);
-        for (int i=0; i<list.elements.size(); i++) {
-            assert(p->str[i] == tesaaa.str[i]);
-        }
+               std::cout << "当前时间: "
+                         << std::put_time(local_time, "%H:%M:%S") // 打印时分秒
+                         << '.' << std::setfill('0') << std::setw(3) << milliseconds.count() // 打印毫秒并填充零
+                 << " Hello, World! "<< i++ << std::endl;
+            return true;
+        });
     }
     
-    
-    {///Pass   normal 数组OK
-        struct AHHH {
-            bool isOk;
-            char alpha[2];
-            int64_t age[2];
-            int xx;
-            
-            bool operator == (const AHHH & other){
-                for (int i=0; i<sizeof(AHHH); i++) {
-                    if ( *(((char*)this) + i) != *(((char*)&other) + i) ) {
-                        return false;
-                    }
-                }
-                return  true;
-            }
-            
-            IMPLEMENT_ENDIAN(AHHH, isOk,alpha,age,xx)
-        };
+    {
+        int i = 0;
         
-        AHHH adsaf{};
-        adsaf.isOk = true;
-        adsaf.alpha[0] = 'X';
-        adsaf.alpha[1] = 'Y';
-        adsaf.age[0] = 100;
-        adsaf.age[1] = 200;
-        adsaf.xx = 1000;
-        
-        
-        auto data = adsaf.hton();
-        AHHH *p = (AHHH*) data.data();
-        
-        AHHH hgas((const char*)data.data());
-        assert(hgas == adsaf);
-        
-        assert(data.size() == sizeof(AHHH));
-        assert(endian::translate<bool>::htn(adsaf.isOk) == p->isOk);
-        assert(endian::translate<char>::htn(adsaf.alpha[0]) == p->alpha[0]);
-        assert(endian::translate<char>::htn(adsaf.alpha[1]) == p->alpha[1]);
-        assert(endian::translate<int64_t>::htn(adsaf.age[0]) == p->age[0]);
-        assert(endian::translate<int64_t>::htn(adsaf.age[1]) == p->age[1]);
-        assert(endian::translate<int>::htn(adsaf.xx) == p->xx);
-        
-    }
-    
-    {///pass ，含结构体、type_list
-        struct CCC {
-            bool isOk[2];
-            char cc[2];
-            int64_t big;
-            AAA aa;
-            endian::type_list<int, bool> tyy;
-            
-            bool operator == (const CCC & other){
-                for (int i=0; i<sizeof(CCC); i++) {
-                    if ( *(((char*)this) + i) != *(((char*)&other) + i) ) {
-                        return false;
-                    }
-                }
-                return  true;
-            }
-            
-            IMPLEMENT_ENDIAN(CCC,isOk,cc,big,aa,tyy)
-        };
-        
-        CCC kcccc{};
-        kcccc.isOk[0] = true;
-        kcccc.isOk[1] = false;
-        kcccc.cc[0] = 'D';
-        kcccc.cc[1] = 'K';
-        kcccc.big = 100;
-        kcccc.aa = aa;
-        kcccc.tyy.head = 120;
-        kcccc.tyy.trail.head = true;
-        
-        auto data = kcccc.hton();
-        assert(data.size() == sizeof(CCC));
-        
-        CCC *pp = (CCC*) data.data();
-        CCC newCC((const char*) pp);
-        assert(newCC == kcccc);
-       
-    }
+        t.scheduledTimer(std::chrono::seconds(5), [&](){
+               auto now = std::chrono::system_clock::now();
+               std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+               auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+               std::tm* local_time = std::localtime(&now_time_t);
 
+               std::cout << "当前时间: "
+                         << std::put_time(local_time, "%H:%M:%S") // 打印时分秒
+                         << '.' << std::setfill('0') << std::setw(3) << milliseconds.count() // 打印毫秒并填充零
+                 << " ---every 5 sec--! "<< i++ << std::endl;
+            return true;
+        });
+    }
+    
+   
     return 0;
 }
-
-
-#pragma pack(pop)
