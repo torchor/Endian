@@ -30,7 +30,7 @@ public:
                 condition.wait(lock,[this](){
                     return !map.empty();
                 });
-    tackle:
+  
                 auto first = map.begin();
                 auto timerId = first->first;
                 auto nd = first->second;
@@ -43,7 +43,7 @@ public:
                 }
                 
                 if (timerId != map.begin()->first) {///醒来的时候，之前的定时器已经被删除了，开始处理下一个
-                    goto tackle;
+                    continue;
                 }
                 
                 auto should_repeat =  first->second.call();
@@ -56,21 +56,12 @@ public:
         });
     }
     
-    
    
-    timer_id scheduledTimer(std::chrono::milliseconds timeout,callback call){
-        timer_id newId = create_timer(timeout,call,true);
+    void scheduledTimer(std::chrono::milliseconds timeout,callback call){
+        create_timer(timeout,call,true);
         condition.notify_one();
-        return  newId;
     }
     
-    void del_timer(timer_id id){
-        {
-            std::lock_guard<std::mutex> guard(mutex);
-            map.erase(id);
-        }
-        condition.notify_one();
-    }
     
     ~timer(){
         if (thread.joinable()) {
@@ -78,7 +69,7 @@ public:
         }
     }
 private:
-    timer_id create_timer(std::chrono::milliseconds timeout,callback call,bool lock){
+    void create_timer(std::chrono::milliseconds timeout,callback call,bool lock){
         auto expired = std::chrono::steady_clock::now() - base_time + timeout;
         u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
         id ++;
@@ -93,8 +84,6 @@ private:
         }else{
             map[newId] = nd;
         }
-       
-        return newId;
     }
     
     
