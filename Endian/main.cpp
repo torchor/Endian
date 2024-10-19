@@ -46,7 +46,7 @@ public:
                 auto should_repeat =  first->second.call();
                 map.erase(timerId);
                 if (should_repeat) {///setup next fire time
-                    create_timer(nd.timeout, nd.call,false);
+                    create_timer<false>(nd.timeout, nd.call);
                 }
                 
             } while (true);
@@ -55,7 +55,7 @@ public:
     
    
     void scheduledTimer(std::chrono::milliseconds timeout,callback call){
-        create_timer(timeout,call,true);
+        create_timer<true>(timeout,call);
         condition.notify_one();
     }
     
@@ -70,21 +70,40 @@ private:
         callback call;
         std::chrono::milliseconds timeout;///每隔多久触发一次
     };
-    
-    void create_timer(std::chrono::milliseconds timeout,callback call,bool lock){
-        auto expired = std::chrono::steady_clock::now() - base_time + timeout;
-        u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
-        id ++;
-        timer_id newId = (milliseconds << (sizeof(id)*8)) | id;
-        node nd;
-        nd.timeout = timeout;
-        nd.call = call;
-        
-        if (lock) {
-            std::lock_guard<std::mutex> guard(mutex);
-            map[newId] = nd;
-        }else{
-            map[newId] = nd;
+    template<bool lock>
+    void create_timer(std::chrono::milliseconds timeout,callback call){
+        bool retry = true;
+        while (retry) {
+            retry = false;
+            
+            auto expired = std::chrono::steady_clock::now() - base_time + timeout;
+            u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
+            if (lock){
+                std::lock_guard<std::mutex> guard(mutex);
+                id ++;
+            }else{
+                id ++;
+            }
+            timer_id newId = (milliseconds << (sizeof(id)*8)) | id;
+            node nd;
+            nd.timeout = timeout;
+            nd.call = call;
+            
+            if (lock) {
+                std::lock_guard<std::mutex> guard(mutex);
+                if (map.find(newId) != map.end()) {///已经存在这个key, 需要重写生成一个唯一key
+                    retry = true;
+                    continue;
+                }
+                map[newId] = nd;
+            }else{
+                if (map.find(newId) != map.end()) {///已经存在这个key, 需要重写生成一个唯一key
+                    retry = true;
+                    continue;
+                }
+                map[newId] = nd;
+            }
+            
         }
     }
     
