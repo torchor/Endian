@@ -50,7 +50,7 @@ public:
                 auto should_repeat =  first->second.call();
                 map.erase(timerId);
                 if (should_repeat) {///setup next fire time
-                    create_timer<false>(nd.timeout, nd.call);
+                    create_timer(nd.timeout, nd.call);
                 }
                 
             } while (true);
@@ -59,7 +59,7 @@ public:
     
    
     void scheduledTimer(std::chrono::milliseconds timeout,callback call){
-        create_timer<true>(timeout,call);
+        create_timer(timeout,call);
         condition.notify_one();
     }
     
@@ -74,15 +74,16 @@ private:
         callback call;
         std::chrono::milliseconds timeout;///每隔多久触发一次
     };
-    template<bool lock>
+    
     void create_timer(std::chrono::milliseconds timeout,callback call){
+        auto isOnThread = std::this_thread::get_id() == thread.get_id();
         bool retry = true;
         while (retry) {
             retry = false;
             
             auto expired = std::chrono::steady_clock::now() - base_time + timeout;
             u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
-            if (lock){
+            if (!isOnThread){
                 std::lock_guard<std::mutex> guard(mutex);
                 keySufix ++;
             }else{
@@ -93,7 +94,7 @@ private:
             nd.timeout = timeout;
             nd.call = call;
             
-            if (lock) {
+            if (!isOnThread) {
                 std::lock_guard<std::mutex> guard(mutex);
                 if (map.find(newId) != map.end()) {///已经存在这个key, 需要重写生成一个唯一key
                     retry = true;
@@ -143,7 +144,13 @@ int main(int argc, const char * argv[]) {
         
         t.scheduledTimer(std::chrono::seconds(10), [&](){
             printTimer(" Hello, World! ",i++);
-            return true;
+            
+            t.scheduledTimer(std::chrono::seconds(5), [&](){
+                printTimer(" enbenddd------enbenad ",i++);
+                return true;
+            });
+            
+            return false;
         });
     }
     
