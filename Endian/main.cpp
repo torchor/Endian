@@ -72,11 +72,21 @@ public:
     }
     
     void  removeTimer(timer_id id){
-        std::lock_guard<std::mutex> guard(mutex);
-        auto key = index_map.find(id);
-        if (key != index_map.end()) {
-            map.erase(key->second);
-            index_map.erase(id);
+        auto isOnThread = std::this_thread::get_id() == thread.get_id();
+        
+        auto fn = [&](){
+            auto key = index_map.find(id);
+            if (key != index_map.end()) {
+                map.erase(key->second);
+                index_map.erase(id);
+            }
+        };
+        
+        if(!isOnThread){
+            std::lock_guard<std::mutex> guard(mutex);
+            fn();
+        }else{
+            fn();
         }
     }
     
@@ -163,16 +173,19 @@ int main(int argc, const char * argv[]) {
     
     {
         int i = 0;
-        
-        t.scheduledTimer(std::chrono::seconds(10), [&](){
+        timer::timer_id id;
+        id =  t.scheduledTimer(std::chrono::seconds(10), [&](){
             printTimer(" Hello, World! ",i++);
             
             t.scheduledTimer(std::chrono::seconds(5), [&](){
                 printTimer(" enbenddd------enbenad ",i++);
-                return true;
+                
+                t.removeTimer(id);
+                
+                return false;
             });
             
-            return false;
+            return true;
         });
     }
     
