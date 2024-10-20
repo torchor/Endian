@@ -19,7 +19,6 @@ public:
     using callback = std::function<bool(void)>;///返回true，定时器继续，返回false，取消定时器
     
   
-    
     timer():base_time(std::chrono::steady_clock::now()),id(0){
         thread = std::thread([this](){
             std::unique_lock<std::mutex> lock(mutex);
@@ -35,11 +34,16 @@ public:
                 auto expire_time = base_time + std::chrono::milliseconds(timerId >> (sizeof(id)*8));
 
                 condition.wait_until(lock, expire_time);
+                
                 if (map.empty()) {
                     continue;
                 }
                 
                 if (timerId != map.begin()->first) {///醒来的时候，之前的定时器已经被删除了，开始处理下一个
+                    continue;
+                }
+                
+                if (std::chrono::steady_clock::now() < expire_time) {///not expired yet, ensure it's timeout not a spurious wakeup
                     continue;
                 }
                 
@@ -119,7 +123,20 @@ private:
     u_int16_t id;///一直递增，避免同一时间生成的key 一样
 };
 
+template <typename ...T>
+void printTimer(T&& ... arg){
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    std::tm* local_time = std::localtime(&now_time_t);
 
+    std::cout << "当前时间: "
+              << std::put_time(local_time, "%H:%M:%S") // 打印时分秒
+              << '.' << std::setfill('0') << std::setw(3) << milliseconds.count() // 打印毫秒并填充零
+    ;
+    
+    (std::cout << ... << arg) << std::endl;
+}
 
 int main(int argc, const char * argv[]) {
     timer t{};
@@ -133,11 +150,8 @@ int main(int argc, const char * argv[]) {
                auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
                std::tm* local_time = std::localtime(&now_time_t);
 
-               std::cout << "当前时间: "
-                         << std::put_time(local_time, "%H:%M:%S") // 打印时分秒
-                         << '.' << std::setfill('0') << std::setw(3) << milliseconds.count() // 打印毫秒并填充零
-                 << " Hello, World! "<< i++ << std::endl;
-            return true;
+              printTimer(" Hello, World! ",i++);
+            return false;
         });
     }
     
@@ -145,19 +159,22 @@ int main(int argc, const char * argv[]) {
         int i = 0;
         
         t.scheduledTimer(std::chrono::seconds(5), [&](){
-               auto now = std::chrono::system_clock::now();
-               std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-               auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-               std::tm* local_time = std::localtime(&now_time_t);
-
-               std::cout << "当前时间: "
-                         << std::put_time(local_time, "%H:%M:%S") // 打印时分秒
-                         << '.' << std::setfill('0') << std::setw(3) << milliseconds.count() // 打印毫秒并填充零
-                 << " ---every 5 sec--! "<< i++ << std::endl;
+           
+            printTimer(" ---every 5 sec--! ",i++ );
             return true;
         });
     }
     
+    
+    {
+        int i = 0;
+        
+        t.scheduledTimer(std::chrono::seconds(1), [&](){
+            printTimer("=================== ",i++ );
+            return true;
+        });
+    }
+    printTimer("start--");
    
     return 0;
 }
