@@ -130,10 +130,7 @@ void printTimer(T&& ... arg){
     auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     std::tm* local_time = std::localtime(&now_time_t);
 
-    std::cout << "当前时间: "
-              << std::put_time(local_time, "%H:%M:%S") // 打印时分秒
-              << '.' << std::setfill('0') << std::setw(3) << milliseconds.count() // 打印毫秒并填充零
-    ;
+    std::cout << "当前时间: "<< std::put_time(local_time, "%H:%M:%S")<< '.' << std::setfill('0') << std::setw(3) << milliseconds.count();
     
     (std::cout << ... << arg) << std::endl;
 }
