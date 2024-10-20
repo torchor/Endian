@@ -50,7 +50,9 @@ public:
                 auto should_repeat =  first->second.call();
                 map.erase(timerId);
                 if (should_repeat) {///setup next fire time
-                    create_timer(nd.timeout, nd.call);
+                    create_timer(nd);
+                }else{///clear timer
+                    index_map.erase(nd.orignal_id);
                 }
                 
             } while (true);
@@ -58,9 +60,24 @@ public:
     }
     
    
-    void scheduledTimer(std::chrono::milliseconds timeout,callback call){
-        create_timer(timeout,call);
+    timer_id scheduledTimer(std::chrono::milliseconds timeout,callback call){
+        node nd;
+        nd.call = call;
+        nd.timeout = timeout;
+        nd.orignal_id = 0;
+       
+        create_timer(nd);
         condition.notify_one();
+        return nd.orignal_id;
+    }
+    
+    void  removeTimer(timer_id id){
+        std::lock_guard<std::mutex> guard(mutex);
+        auto key = index_map.find(id);
+        if (key != index_map.end()) {
+            map.erase(key->second);
+            index_map.erase(id);
+        }
     }
     
     
@@ -71,17 +88,19 @@ public:
     }
 private:
     struct node{
+        timer_id orignal_id;
         callback call;
         std::chrono::milliseconds timeout;///每隔多久触发一次
     };
     
-    void create_timer(std::chrono::milliseconds timeout,callback call){
+    void create_timer(node& parameter){
         auto isOnThread = std::this_thread::get_id() == thread.get_id();
         bool retry = true;
+        timer_id newId = 0;
         while (retry) {
             retry = false;
             
-            auto expired = std::chrono::steady_clock::now() - base_time + timeout;
+            auto expired = std::chrono::steady_clock::now() - base_time + parameter.timeout;
             u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
             if (!isOnThread){
                 std::lock_guard<std::mutex> guard(mutex);
@@ -89,10 +108,10 @@ private:
             }else{
                 keySufix ++;
             }
-            timer_id newId = (milliseconds << (sizeof(keySufix)*8)) | keySufix;
-            node nd;
-            nd.timeout = timeout;
-            nd.call = call;
+            newId = (milliseconds << (sizeof(keySufix)*8)) | keySufix;
+            if (0 == parameter.orignal_id) {///first time save as it's orginal id
+                parameter.orignal_id = newId;
+            }
             
             if (!isOnThread) {
                 std::lock_guard<std::mutex> guard(mutex);
@@ -100,18 +119,19 @@ private:
                     retry = true;
                     continue;
                 }
-                map[newId] = nd;
+                index_map[parameter.orignal_id] = newId;
+                map[newId] = parameter;
             }else{
                 if (map.find(newId) != map.end()) {///已经存在这个key, 需要重写生成一个唯一key
                     retry = true;
                     continue;
                 }
-                map[newId] = nd;
+                index_map[parameter.orignal_id] = newId;
+                map[newId] = parameter;
             }
             
         }
     }
-    
     
 
     std::mutex mutex;
@@ -119,6 +139,8 @@ private:
     
     std::thread thread;
     std::map<timer_id,node> map;///自动按时间排序
+
+    std::unordered_map<timer_id, timer_id> index_map;///orinalId ---> timerId
     
     const std::chrono::time_point<std::chrono::steady_clock> base_time;
     u_int16_t keySufix;///一直递增，避免同一时间生成的key 一样
