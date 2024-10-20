@@ -145,13 +145,8 @@ int main(int argc, const char * argv[]) {
         int i = 0;
         
         t.scheduledTimer(std::chrono::seconds(10), [&](){
-               auto now = std::chrono::system_clock::now();
-               std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-               auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-               std::tm* local_time = std::localtime(&now_time_t);
-
-              printTimer(" Hello, World! ",i++);
-            return false;
+            printTimer(" Hello, World! ",i++);
+            return true;
         });
     }
     
