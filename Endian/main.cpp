@@ -19,7 +19,7 @@ public:
     using callback = std::function<bool(void)>;///返回true，定时器继续，返回false，取消定时器
     
   
-    timer():base_time(std::chrono::steady_clock::now()),id(0){
+    timer():base_time(std::chrono::steady_clock::now()),keySufix(0){
         thread = std::thread([this](){
             std::unique_lock<std::mutex> lock(mutex);
             do {
@@ -31,7 +31,7 @@ public:
                 auto timerId = first->first;
                 auto nd = first->second;
                 
-                auto expire_time = base_time + std::chrono::milliseconds(timerId >> (sizeof(id)*8));
+                auto expire_time = base_time + std::chrono::milliseconds(timerId >> (sizeof(keySufix)*8));
 
                 condition.wait_until(lock, expire_time);
                 
@@ -84,11 +84,11 @@ private:
             u_int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
             if (lock){
                 std::lock_guard<std::mutex> guard(mutex);
-                id ++;
+                keySufix ++;
             }else{
-                id ++;
+                keySufix ++;
             }
-            timer_id newId = (milliseconds << (sizeof(id)*8)) | id;
+            timer_id newId = (milliseconds << (sizeof(keySufix)*8)) | keySufix;
             node nd;
             nd.timeout = timeout;
             nd.call = call;
@@ -120,7 +120,7 @@ private:
     std::map<timer_id,node> map;///自动按时间排序
     
     const std::chrono::time_point<std::chrono::steady_clock> base_time;
-    u_int16_t id;///一直递增，避免同一时间生成的key 一样
+    u_int16_t keySufix;///一直递增，避免同一时间生成的key 一样
 };
 
 template <typename ...T>
