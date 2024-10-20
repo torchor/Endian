@@ -15,7 +15,7 @@
 
 class timer{
 public:
-    using timer_id = u_int64_t;///高32位表示距离base_time时间戳，低32位区分同一个时间，的不同Timer
+    using timer_id = u_int64_t;///高48位表示距离base_time时间戳，低16位区分同一个时间，的不同Timer
     using callback = std::function<bool(void)>;///返回true，定时器继续，返回false，取消定时器
     
   
