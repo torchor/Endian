@@ -358,8 +358,8 @@ struct type_list<T> {
 #pragma pack(pop)
 
 
-#define __IMPLEMENT__ENDIAN__(ClassName,T1,...)  \
-using Alias = endian::type_list<T1,##__VA_ARGS__>;\
+#define __IMPLEMENT__ENDIAN__(ClassName,...)  \
+using Alias = endian::type_list<__VA_ARGS__>;\
 ClassName(){memset(this, 0, sizeof(ClassName));}\
 ClassName(const void*input){\
 memset(this, 0, sizeof(ClassName));\
