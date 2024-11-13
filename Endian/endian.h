@@ -360,8 +360,10 @@ struct type_list<T> {
 
 #define __IMPLEMENT__ENDIAN__(ClassName,T1,...)  \
 using Alias = endian::type_list<T1,##__VA_ARGS__>;\
-ClassName(){}\
+ClassName(){memset(this, 0, sizeof(ClassName));}\
 ClassName(const void*input){\
+memset(this, 0, sizeof(ClassName));\
+ntoh(input);\
 }\
 inline void ntoh(const void*input){\
 static_assert(endian::struct_has_Alias_v<ClassName>::value, "must contain type Alias within class");\
