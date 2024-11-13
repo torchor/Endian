@@ -172,7 +172,7 @@ void printTimer(T&& ... arg){
     (std::cout << ... << arg) << std::endl;
 }
 
-int main(int argc, const char * argv[]) {
+int main0(int argc, const char * argv[]) {
     timer t{};
     
     

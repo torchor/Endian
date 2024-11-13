@@ -10,13 +10,13 @@
 #include <type_traits>
 #include <vector>
 #include <cassert>
-#include <string.h>
+#include <string.h> 
 
 #pragma pack(push, 1)
 
 namespace endian {
 
-#if __cplusplus >= 201703L ///C++17
+#if _cplusplus >= 201703L ///C++17
 using byte = std::byte;
 #else
 using byte = enum class_byte_: unsigned char {};
@@ -140,7 +140,8 @@ struct router;
 
 template <typename T>
 inline size_t size_byte(T &n) {
-    return router<T>(n).bytes_ctn();
+    router<T> tmp(n);
+    return tmp.bytes_ctn();
 }
 
 template<typename T>
@@ -353,30 +354,33 @@ struct type_list<T> {
         return router<T>(head).bytes_ctn();
     }
 };
-}
+
 
 #pragma pack(pop)
 
 
 #define __IMPLEMENT__ENDIAN__(ClassName,T1,...)  \
-using Alias = endian::type_list<T1,##__VA_ARGS__>;\
-ClassName(){}\
-ClassName(const void*input){\
-}\
-inline void ntoh(const void*input){\
-static_assert(endian::struct_has_Alias_v<ClassName>::value, "must contain type Alias within class");\
-static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
-new (this) Alias((const char*)input);\
-}\
-inline endian::bytes hton(){\
-  static_assert(endian::struct_has_Alias_v<ClassName>::value, "must contain type Alias within class");\
-  static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
-  return ((Alias*)this)->hton();\
-}
+      using Alias = endian::type_list<T1,##__VA_ARGS__>;\
+      ClassName(){}\
+\
+     ClassName(const void*input){\
+        ntoh(input);\
+    }\
+    \
+    inline void ntoh(const void*input){\
+        static_assert(endian::struct_has_Alias_v<ClassName>, "must contain type Alias within class");\
+        static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
+        new (this) Alias((const char*)input);\
+    }\
+    inline endian::bytes hton(){\
+        static_assert(endian::struct_has_Alias_v<ClassName>, "must contain type Alias within class");\
+        static_assert(sizeof(ClassName) == sizeof(Alias), "size of type not match");\
+        return ((Alias*)this)->hton();\
+    }
 
 
 #define __MACRO__ARG__COUNT__(_0, _1, _2, _3, _4, _5, _6, _7, _8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19, COUNT, ...)  COUNT
-#define _MACROARGCOUNT_(...) __MACRO__ARG__COUNT__(__VA_ARGS__,20,19,18,17,16,15,14,13,12,11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+#define _MACROARGCOUNT_(...) __MACRO__ARG__COUNT__(__VA_ARGS__,_20,_19,_18,_17,_16,_15,_14,_13,_12,_11, _10, _9, _8, _7, _6, _5, _4, _3, _2, _1)
 
 #define __CONCAT__(A,B) ____CONCAT____(A,B)
 #define ____CONCAT____(A,B)   A##B
@@ -399,4 +403,3 @@ inline endian::bytes hton(){\
 #define IMPLEMENT_ENDIAN(CLS,...)  __IMPLEMENT__ENDIAN__(CLS,__CONCATFUNCTION__(__VA_ARGS__)(__VA_ARGS__))
 
 #endif /* endian_h */
-

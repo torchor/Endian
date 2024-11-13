@@ -45,7 +45,7 @@ int main() {
         };
         
         TMP aa;
-        auto xx0 = endian::size_byte(aa);
+       // auto xx0 = endian::size_byte(aa);
         
         struct DDD {
             int64_t big[2];
@@ -58,7 +58,7 @@ int main() {
         };
 
         TMP tmp;
-        assert(endian::size_byte(tmp) == sizeof(TMP));
+       // assert(endian::size_byte(tmp) == sizeof(TMP));
         
         {
 //            ;//<TMP> KK(tmp);
@@ -77,10 +77,10 @@ int main() {
         auto xjjsize = endian::size_byte(xxasdf.base64);
         {
             //endian::size_byte<DDD::Alias> KK( *((DDD::Alias*) &xxasdf)  );
-            endian::__c_size_byte_t__<DDD> KK( xxasdf  );
-            auto xxa = KK.bytes_ctn();///43
-            ///
-           auto jjjj = endian::size_byte<DDD>(xxasdf);
+//            endian::__c_size_byte_t__<DDD> KK( xxasdf  );
+//            auto xxa = KK.bytes_ctn();///43
+//            ///
+//           auto jjjj = endian::size_byte<DDD>(xxasdf);
             
 //            assert(KK.bytes_ctn() == sizeof(TMP));
         }
