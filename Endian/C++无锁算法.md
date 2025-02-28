@@ -38,11 +38,14 @@ void subTask(){
     }
 }
 ///情况分析
+ onlyOneThreadUsed = onlyOneThreadUsed +2;///1--1 安全
  shareData = onlyOneThreadUsed;//1--2  安全
  ctn = onlyOneThreadUsed;//1--3  不安全，无锁算法失效：二者没有一个是原子变量
  localCtn = onlyOneThreadUsed; //1-4 安全
+ shareData = shareData +2;///2--2  无锁算法OK
  ctn = shareData;//2--3 不安全，无锁算法失效
- localCtn = shareData;//2--4  不安全，无锁算法OK
+ localCtn = shareData;//2--4  安全
+ ctn = ctn +3;///3---3  不安全，无锁算法失效
  localCtn = ctn; //3-4 不安全，无锁算法失效：因为竞态变量非原子，只能互斥锁
 
 int main(){
@@ -53,16 +56,14 @@ int main(){
     }
     onlyOneThreadUsed = 1;//只有主线程访问，不存在竞争
   
-    
-  
     for (auto&t : threadArray) {t.join();}///wait
     return 0;
 }
 ```
 
+通过上述代码分析，我们可以知道，什么时候可以用无锁算法？什么时候是完全安全的？什么时候无锁算法失效？
 
-
-#### 1、将一个`竞态原子变量A`保存到另一个`竞态原子变量B`
+#### 1、无锁算法案例：将一个`竞态原子变量A`保存到另一个`竞态原子变量B`
 
 💡：`竞态原子变量`指可能被多线程竞争访问的atomic类型变量
 
