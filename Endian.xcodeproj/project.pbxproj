@@ -8,7 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		643BBDE92CD46C2B001A9A9E /* main-timer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 643BBDE82CD46C2B001A9A9E /* main-timer.cpp */; };
-		64AE55C42CB162D300551AE0 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 64AE55C32CB162D300551AE0 /* main.cpp */; };
+		64AE55C42CB162D300551AE0 /* test-endian.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 64AE55C32CB162D300551AE0 /* test-endian.cpp */; };
+		64EF58332D71E73E00B7C46C /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 64EF58322D71E73E00B7C46C /* main.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -27,8 +28,9 @@
 		643BBDE82CD46C2B001A9A9E /* main-timer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = "main-timer.cpp"; sourceTree = "<group>"; };
 		6467CB702CF4ACF600FAE8AD /* timer.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = timer.hpp; sourceTree = "<group>"; };
 		64AE55C02CB162D300551AE0 /* Endian */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Endian; sourceTree = BUILT_PRODUCTS_DIR; };
-		64AE55C32CB162D300551AE0 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
+		64AE55C32CB162D300551AE0 /* test-endian.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = "test-endian.cpp"; sourceTree = "<group>"; };
 		64AE55CA2CB1642700551AE0 /* endian.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = endian.h; sourceTree = "<group>"; };
+		64EF58322D71E73E00B7C46C /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,10 +63,11 @@
 		64AE55C22CB162D300551AE0 /* Endian */ = {
 			isa = PBXGroup;
 			children = (
-				64AE55C32CB162D300551AE0 /* main.cpp */,
+				64AE55C32CB162D300551AE0 /* test-endian.cpp */,
 				64AE55CA2CB1642700551AE0 /* endian.h */,
 				643BBDE82CD46C2B001A9A9E /* main-timer.cpp */,
 				6467CB702CF4ACF600FAE8AD /* timer.hpp */,
+				64EF58322D71E73E00B7C46C /* main.cpp */,
 			);
 			path = Endian;
 			sourceTree = "<group>";
@@ -127,7 +130,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				643BBDE92CD46C2B001A9A9E /* main-timer.cpp in Sources */,
-				64AE55C42CB162D300551AE0 /* main.cpp in Sources */,
+				64AE55C42CB162D300551AE0 /* test-endian.cpp in Sources */,
+				64EF58332D71E73E00B7C46C /* main.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
