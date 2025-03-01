@@ -87,7 +87,7 @@ std::shared_ptr<T> pop()
 - 如果一样，说明这段时间内，head还好没被其他线程修改，万幸！成功保存，结束。
 - 如果不一样，说明这段时间内，head已经被其他线程修改了，我们需要重新`goto 1;` 重新执行一遍
 
-通过上述流程，最终一定能保证`1+2`这段代码整体是个原子操作，线程安全！⚠️：这里暂时不考虑`ABA`问题。
+通过上述流程，最终一定能保证`1+2`这段代码整体是个线程安全！⚠️：这里暂时不考虑`ABA`问题。
 
 如下伪代码即可实现上述要求：
 
@@ -102,6 +102,16 @@ retry:
   
   if(head.load() != old_head) //如果head目前的最新值不等于old_head,说明需要重新操作！
     goto retry;
+// ...
+}
+
+
+//---作为对比;-----------------CAS: hp = head
+std::shared_ptr<T> pop()
+{
+  std::atomic<void*>& hp=  get_hazard_pointer_for_current_thread();
+  node* old_hp=hp.load(); 
+  while(!hp.compare_exchange_weak(old_hp,head.load));
 // ...
 }
 ```
