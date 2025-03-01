@@ -94,6 +94,8 @@ std::shared_ptr<T> pop()
 ```c++
 std::shared_ptr<T> pop()
 {//hp会被不停的修改，直到head未被其他线程修改为止。
+ //其他线程并发读取hp，可能会读取到中间状态
+ //其他线程修改head，我们总是能读取到最新值
   std::atomic<void*>& hp=  get_hazard_pointer_for_current_thread();
 retry:  
   node* old_head=head.load();  // 1
