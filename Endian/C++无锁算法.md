@@ -107,11 +107,13 @@ retry:
 
 
 //---作为对比;-----------------CAS: hp = head
-std::shared_ptr<T> pop()
+std::shared_ptr<T> pop2()
 {
   std::atomic<void*>& hp=  get_hazard_pointer_for_current_thread();
-  node* old_hp=hp.load(); 
-  while(!hp.compare_exchange_weak(old_hp,head.load));
+  
+  node* old_hp=hp.load(); ///总能得到最新的hp
+  auto h = head.load();//
+  while(!hp.compare_exchange_weak(old_hp,h));///hp存储的不一定是最新的head
 // ...
 }
 ```
