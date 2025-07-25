@@ -18,151 +18,188 @@
 #include <unordered_map>
 
 namespace timer{
-    using timer_id =  uint64_t;///é«˜48ä½è¡¨ç¤ºè·ç¦»base_timeæ—¶é—´æˆ³ï¼Œä½16ä½åŒºåˆ†åŒä¸€ä¸ªæ—¶é—´ï¼Œçš„ä¸åŒTimer
-    using callback = std::function<bool(void)>;///è¿”å›trueï¼Œå®šæ—¶å™¨ç»§ç»­ï¼Œè¿”å›falseï¼Œå–æ¶ˆå®šæ—¶å™¨
+	using milliseconds_t = std::chrono::milliseconds;
+	using timer_id =  uint64_t;///¸ß48Î»±íÊ¾¾àÀëbase_timeÊ±¼ä´Á£¬µÍ16Î»Çø·ÖÍ¬Ò»¸öÊ±¼ä£¬µÄ²»Í¬Timer
+	using callback = std::function<milliseconds_t(void)>;///·µ»Ø>0£¬¶¨Ê±Æ÷¼ÌĞø£»·ñÔò È¡Ïû¶¨Ê±Æ÷
+
+	using callback_until_timeup = std::function<void(uint32_t index,bool isLastTime)>;///·µ»Ø>0£¬¶¨Ê±Æ÷¼ÌĞø£»·ñÔò È¡Ïû¶¨Ê±Æ÷
 
 class Timer {
 public:
-    Timer() :base_time(std::chrono::steady_clock::now()), keySufix(0) {
-        auto thread = std::thread([this]() {
-            std::unique_lock<std::mutex> lock(mutex);
-            do {
-                condition.wait(lock, [this]() {
-                    return !map.empty();
-                });
+	Timer() :base_time(std::chrono::steady_clock::now()), keySufix(0) {
+		auto thread = std::thread([this]() {
+			std::unique_lock<std::mutex> lock(m_mutex);
+			do {
+				m_condition.wait(lock, [this]() {
+					return !m_map.empty();
+				});
 
-                auto first = map.begin();
-                auto timerId = first->first;
-                auto nd = first->second;
+				auto first = m_map.begin();
+				auto timerId = first->first;
+				auto nd = first->second;
 
-                auto expire_time = base_time + std::chrono::milliseconds(timerId >> (sizeof(keySufix) * 8));
+				auto expire_time = base_time + milliseconds_t(timerId >> (sizeof(keySufix) * 8));
 
-                condition.wait_until(lock, expire_time);
+				m_condition.wait_until(lock, expire_time);
 
-                if (map.empty()) {
-                    continue;
-                }
+				if (m_map.empty()) {
+					continue;
+				}
 
-                if (timerId != map.begin()->first) {///é†’æ¥çš„æ—¶å€™ï¼Œä¹‹å‰çš„å®šæ—¶å™¨å·²ç»è¢«åˆ é™¤äº†ï¼Œå¼€å§‹å¤„ç†ä¸‹ä¸€ä¸ª
-                    continue;
-                }
+				if (timerId != m_map.begin()->first) {///ĞÑÀ´µÄÊ±ºò£¬Ö®Ç°µÄ¶¨Ê±Æ÷ÒÑ¾­±»É¾³ıÁË£¬¿ªÊ¼´¦ÀíÏÂÒ»¸ö
+					continue;
+				}
 
-                if (std::chrono::steady_clock::now() < expire_time) {///not expired yet, ensure it's timeout not a spurious wakeup
-                    continue;
-                }
+				if (std::chrono::steady_clock::now() < expire_time) {///not expired yet, ensure it's timeout not a spurious wakeup
+					continue;
+				}
 
-                auto should_repeat = nd.call();
-                map.erase(timerId);
-                if (should_repeat) {///setup next fire time
-                    create_timer(nd);
-                }
-                else {///clear timer
-                    index_map.erase(nd.orignal_id);
-                }
+				auto next_duration = nd.call();
+				m_map.erase(timerId);
+				if (next_duration.count() > 0) {///setup next fire time
+					nd.timeout = next_duration;
+					create_timer(nd);
+				}
+				else {///clear timer
+					index_map.erase(nd.orignal_id);
+				}
 
-            } while (true);
-        });
-        thread_id = thread.get_id();
-        thread.detach();
-    }
+			} while (true);
+		});
+		thread_id = thread.get_id();
+		thread.detach();
+	}
 
+	timer_id scheduledTimer(const milliseconds_t timeout,const callback& call) {
+		node nd;
+		nd.call = call;
+		nd.timeout = timeout;
+		nd.orignal_id = 0;
 
-    timer_id scheduledTimer(std::chrono::milliseconds timeout, callback call) {
-        node nd;
-        nd.call = call;
-        nd.timeout = timeout;
-        nd.orignal_id = 0;
+		create_timer(nd);
+		m_condition.notify_one();
+		return nd.orignal_id;
+	}
 
-        create_timer(nd);
-        condition.notify_one();
-        return nd.orignal_id;
-    }
+	timer_id scheduledTimer(const milliseconds_t interval, uint32_t repeatCount, const callback_until_timeup& call) {
+		if (repeatCount <=0 || !call || interval.count() <= 0)
+		{
+			return 0;
+		}
+		auto count = 0;
+		return scheduledTimer(interval, [=]() mutable{
+			repeatCount--;
 
-    void  removeTimer(timer_id id) {
-        auto isOnThread = std::this_thread::get_id() == thread_id;
+			auto next_timer = repeatCount <= 0 ? milliseconds_t{ 0 } : interval;
+			call(++count, next_timer.count() <= 0);
+			return next_timer;
+		});
+	}
 
-        auto fn = [&]() {
-            auto key = index_map.find(id);
-            if (key != index_map.end()) {
-                map.erase(key->second);
-                index_map.erase(id);
-            }
-        };
+	///Ã¿¸ôintervalÃë Ö´ĞĞÒ»´Î£¬×ÜÊ±¼ätotal
+	timer_id scheduledTimer(const milliseconds_t interval,  milliseconds_t total, const callback_until_timeup& call) {
+		if (interval > total || total.count() <= 0 || interval.count() <=0 || !call)
+		{
+			return 0;
+		}
+		auto count = 0;
+		return scheduledTimer(interval, [=]() mutable{
+			auto next_timer =  (total >= interval) ? interval : total;
+			total -= interval;
+			if (total.count() <= 0)
+			{
+				next_timer = milliseconds_t{0};
+			}
+			call(++count, next_timer.count() <= 0);
+			return  next_timer;
+		});
+	}
 
-        if (!isOnThread) {
-            std::lock_guard<std::mutex> guard(mutex);
-            fn();
-        }
-        else {
-            fn();
-        }
-    }
+	void  removeTimer(timer_id id) {
+		auto isOnThread = std::this_thread::get_id() == thread_id;
+
+		auto fn = [&]() {
+			auto key = index_map.find(id);
+			if (key != index_map.end()) {
+				m_map.erase(key->second);
+				index_map.erase(id);
+			}
+		};
+
+		if (!isOnThread) {
+			std::lock_guard<std::mutex> guard(m_mutex);
+			fn();
+		}
+		else {
+			fn();
+		}
+	}
 
 private:
-    struct node {
-        timer_id orignal_id;
-        callback call;
-        std::chrono::milliseconds timeout;///æ¯éš”å¤šä¹…è§¦å‘ä¸€æ¬¡
-    };
+	struct node {
+		timer_id orignal_id;
+		callback call;
+		milliseconds_t timeout;///Ã¿¸ô¶à¾Ã´¥·¢Ò»´Î
+	};
 
-    void create_timer(node& parameter) {
-        auto isOnThread = std::this_thread::get_id() == thread_id;
-        bool retry = true;
-        timer_id newId = 0;
-        while (retry) {
-            retry = false;
+	void create_timer(node& parameter) {
+		auto isOnThread = std::this_thread::get_id() == thread_id;
+		bool retry = true;
+		timer_id newId = 0;
+		while (retry) {
+			retry = false;
 
-            auto expired = std::chrono::steady_clock::now() - base_time + parameter.timeout;
-            int64_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(expired).count();
-            if (!isOnThread) {
-                std::lock_guard<std::mutex> guard(mutex);
-                keySufix++;
-            }
-            else {
-                keySufix++;
-            }
-            newId = (milliseconds << (sizeof(keySufix) * 8)) | keySufix;
-            if (0 == parameter.orignal_id) {///first time save as it's orginal id
-                parameter.orignal_id = newId;
-            }
+			auto expired = std::chrono::steady_clock::now() - base_time + parameter.timeout;
+			int64_t milliseconds = std::chrono::duration_cast<milliseconds_t>(expired).count();
+			if (!isOnThread) {
+				std::lock_guard<std::mutex> guard(m_mutex);
+				keySufix++;
+			}
+			else {
+				keySufix++;
+			}
+			newId = (milliseconds << (sizeof(keySufix) * 8)) | keySufix;
+			if (0 == parameter.orignal_id) {///first time save as it's orginal id
+				parameter.orignal_id = newId;
+			}
 
-            if (!isOnThread) {
-                std::lock_guard<std::mutex> guard(mutex);
-                if (map.find(newId) != map.end()) {///å·²ç»å­˜åœ¨è¿™ä¸ªkey, éœ€è¦é‡å†™ç”Ÿæˆä¸€ä¸ªå”¯ä¸€key
-                    retry = true;
-                    continue;
-                }
-                index_map[parameter.orignal_id] = newId;
-                map[newId] = parameter;
-            }
-            else {
-                if (map.find(newId) != map.end()) {///å·²ç»å­˜åœ¨è¿™ä¸ªkey, éœ€è¦é‡å†™ç”Ÿæˆä¸€ä¸ªå”¯ä¸€key
-                    retry = true;
-                    continue;
-                }
-                index_map[parameter.orignal_id] = newId;
-                map[newId] = parameter;
-            }
+			if (!isOnThread) {
+				std::lock_guard<std::mutex> guard(m_mutex);
+				if (m_map.find(newId) != m_map.end()) {///ÒÑ¾­´æÔÚÕâ¸ökey, ĞèÒªÖØĞ´Éú³ÉÒ»¸öÎ¨Ò»key
+					retry = true;
+					continue;
+				}
+				index_map[parameter.orignal_id] = newId;
+				m_map[newId] = parameter;
+			}
+			else {
+				if (m_map.find(newId) != m_map.end()) {///ÒÑ¾­´æÔÚÕâ¸ökey, ĞèÒªÖØĞ´Éú³ÉÒ»¸öÎ¨Ò»key
+					retry = true;
+					continue;
+				}
+				index_map[parameter.orignal_id] = newId;
+				m_map[newId] = parameter;
+			}
 
-        }
-    }
+		}
+	}
 
 
-    std::mutex mutex;
-    std::condition_variable condition;
+	std::mutex m_mutex;
+	std::condition_variable m_condition;
 
-    std::thread::id thread_id;
-    std::map<timer_id, node> map;///è‡ªåŠ¨æŒ‰æ—¶é—´æ’åº
+	std::thread::id thread_id;
+	std::map<timer_id, node> m_map;///×Ô¶¯°´Ê±¼äÅÅĞò
 
-    std::unordered_map<timer_id, timer_id> index_map;///orinalId ---> timerId
+	std::unordered_map<timer_id, timer_id> index_map;///orinalId ---> timerId
 
 #if defined(_MSC_VER) && _MSC_VER <= 1900
-    const std::chrono::time_point<std::chrono::high_resolution_clock> base_time;///for VS2013 Only,because it's too old
+	const std::chrono::time_point<std::chrono::high_resolution_clock> base_time;///for VS2013 Only,because it's too old
 #else
-    const std::chrono::time_point<std::chrono::steady_clock> base_time;
+	const std::chrono::time_point<std::chrono::steady_clock> base_time;
 #endif
-    
-    uint16_t keySufix;///ä¸€ç›´é€’å¢ï¼Œé¿å…åŒä¸€æ—¶é—´ç”Ÿæˆçš„key ä¸€æ ·
+	
+	uint16_t keySufix;///Ò»Ö±µİÔö£¬±ÜÃâÍ¬Ò»Ê±¼äÉú³ÉµÄkey Ò»Ñù
 };
 
 }
