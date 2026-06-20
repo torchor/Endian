@@ -73,17 +73,19 @@ inline std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr
     ptr.swap(pNew);
     return  ptr->get_pointer();
 }
-
-template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
-struct data_to_reclaim
+struct retire_node
 {
-    T* data;
-    data_to_reclaim* next;
-    data_to_reclaim(T* p):data(p),next(0){}
-    virtual ~data_to_reclaim(){delete data;}
+    void* data;
+    retire_node* next;
+    retire_node(void* p):data(p),next(0){}
+    virtual ~retire_node()=default;
 };
-struct empty_type{};
-using retire_node = data_to_reclaim<empty_type>;
+template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
+struct data_to_reclaim:retire_node
+{
+    data_to_reclaim(T* p):retire_node(p){}
+    virtual  ~data_to_reclaim(){delete static_cast<T*>(data);}
+};
 inline std::atomic<retire_node*> nodes_to_reclaim;
 inline std::atomic<uint32_t> retire_count{0};
 inline void add_to_reclaim_list(retire_node* node)
