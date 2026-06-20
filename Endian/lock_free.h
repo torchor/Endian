@@ -216,6 +216,7 @@ struct atomic_owner_ptr{
             {
                 delete old;
             }
+            delete_nodes_with_no_hazards();
         }
         return *this;
     }
