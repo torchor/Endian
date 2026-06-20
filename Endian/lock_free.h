@@ -182,6 +182,7 @@ struct atomic_owner_ptr{
     {
         hazard_lock(const T *p):rawPointer(p),hp(get_hazard_pointer_for_current_thread()){hp.store(p);}
         hazard_lock(hazard_lock &&v):rawPointer(v.rawPointer),hp(v.hp){v.rawPointer = nullptr;}
+        
         const T* operator ->(){return rawPointer;}
         const T& operator*()  { return *rawPointer; }
         explicit operator bool() const { return rawPointer != nullptr; }
@@ -200,13 +201,14 @@ struct atomic_owner_ptr{
     hazard_lock safe_read(){return hazard_lock(p);}
     
     atomic_owner_ptr(const T*_p):p(_p){}
+    ~atomic_owner_ptr(){*this = nullptr;}
     
     atomic_owner_ptr& operator=(const T*_p)
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
         if (old) {
-            if(outstanding_hazard_pointers_for(old))
+            if(outstanding_hazard_pointers_for(const_cast<T*>(old)))
             {
                 reclaim_later(old);
             }
