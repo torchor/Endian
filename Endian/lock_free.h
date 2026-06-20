@@ -68,7 +68,8 @@ struct data_to_reclaim
     data_to_reclaim(T* p):data(p),next(0){}
     virtual ~data_to_reclaim(){delete data;}
 };
-using retire_node = data_to_reclaim<void*>;
+struct empty_type{};
+using retire_node = data_to_reclaim<empty_type>;
 std::atomic<retire_node*> nodes_to_reclaim;
 void add_to_reclaim_list(retire_node* node)
 {
