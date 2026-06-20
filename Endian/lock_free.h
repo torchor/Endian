@@ -60,7 +60,7 @@ std::atomic<void*>& get_hazard_pointer_for_current_thread()
 }
 
 
-template<typename T>
+template<typename T,typename = std::enable_if_t<!std::is_void_v<T>>>
 struct data_to_reclaim
 {
     T* data;
@@ -68,8 +68,9 @@ struct data_to_reclaim
     data_to_reclaim(T* p):data(p),next(0){}
     virtual ~data_to_reclaim(){delete data;}
 };
-std::atomic<data_to_reclaim<void>*> nodes_to_reclaim;
-void add_to_reclaim_list(data_to_reclaim<void>* node)
+using retire_node = data_to_reclaim<void*>;
+std::atomic<retire_node*> nodes_to_reclaim;
+void add_to_reclaim_list(retire_node* node)
 {
     node->next=nodes_to_reclaim.load();
     while(!nodes_to_reclaim.compare_exchange_weak(node->next,node));
@@ -90,8 +91,7 @@ bool outstanding_hazard_pointers_for(void* p)
 template<typename T,typename = std::enable_if_t<!std::is_void_v<T>>>
 void reclaim_later(T* data)
 {
-    using Type = data_to_reclaim<void>;
-    add_to_reclaim_list(reinterpret_cast<Type*>(new data_to_reclaim<T>(data)));
+    add_to_reclaim_list(reinterpret_cast<retire_node*>(new data_to_reclaim<T>(data)));
 }
 void delete_nodes_with_no_hazards()
 {
