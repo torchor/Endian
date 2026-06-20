@@ -25,7 +25,7 @@ class hp_owner
 {
     hazard_pointer* hp;
 public:
-   inline static hazard_pointer hazard_pointers[max_hazard_pointers];
+   inline static hazard_pointer hazard_slots[max_hazard_pointers];
     
     hp_owner(hp_owner const&)=delete;
     hp_owner operator=(hp_owner const&)=delete;
@@ -33,9 +33,9 @@ public:
     {
         for(unsigned i=0;i<max_hazard_pointers;++i)
         {
-            if(!hazard_pointers[i].occupied.test_and_set())
+            if(!hazard_slots[i].occupied.test_and_set())
             {
-                hp=&hazard_pointers[i];
+                hp=&hazard_slots[i];
                 return;
             }
         }
@@ -82,7 +82,7 @@ bool outstanding_hazard_pointers_for(void* p)
 {
   for(unsigned i=0;i<max_hazard_pointers;++i)
   {
-    if(hp_owner::hazard_pointers[i].pointer.load()==p)
+    if(hp_owner::hazard_slots[i].pointer.load()==p)
     {
       return true;
     }
