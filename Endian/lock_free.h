@@ -110,21 +110,22 @@ inline void reclaim_later(T* data)
 {
     add_to_reclaim_list(reinterpret_cast<retire_node*>(new data_to_reclaim<T>(data)));
 }
-inline void delete_nodes_with_no_hazards()
+inline void delete_nodes_with_no_hazards(bool force=false)
 {
-    if (retire_count.load() < threshold) return;
-    
+    if (!force && retire_count.load() < threshold) return;
+
+    auto current=nodes_to_reclaim.exchange(nullptr);
+    retire_count.store(0);
+
     std::unordered_set<void*> protected_ptrs;
     for(unsigned i=0;i<max_hazard_pointers;++i)
     {
-        if(auto v = hp_owner::hazard_slots[i].pointer.load(std::memory_order_relaxed))
+        if(auto v = hp_owner::hazard_slots[i].pointer.load())
         {
             protected_ptrs.insert(v);
         }
     }
-    
-    auto current=nodes_to_reclaim.exchange(nullptr);
-    retire_count.store(0);
+
     while(current)
     {
         auto const next=current->next;
@@ -196,8 +197,7 @@ public:
     ~stack()
     {
         while (pop()) {}
-        // 最后一批退役节点没有后续 pop 来触发回收，这里补一次终扫，避免节点壳泄漏
-        delete_nodes_with_no_hazards();
+        delete_nodes_with_no_hazards(true);
     }
 };
 
@@ -250,7 +250,7 @@ struct atomic_owner_ptr{
     hazard_lock safe_read(){return hazard_lock(p);}
     
     atomic_owner_ptr(const T*_p):p(_p){}
-    ~atomic_owner_ptr(){*this = nullptr;}
+    ~atomic_owner_ptr(){*this = nullptr; delete_nodes_with_no_hazards(true);}
     
     atomic_owner_ptr& operator=(const T*_p)
     {
