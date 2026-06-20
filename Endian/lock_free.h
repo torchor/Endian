@@ -68,7 +68,10 @@ struct data_to_reclaim
     data_to_reclaim(T* p):data(p),next(0){}
    virtual ~data_to_reclaim()
     {
-        delete data;
+       if constexpr (!std::is_void_v<T>) 
+       {
+           delete data;
+       }
     }
 };
 std::atomic<data_to_reclaim<void>*> nodes_to_reclaim;
