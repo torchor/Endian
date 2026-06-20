@@ -177,7 +177,12 @@ public:
         return res;
     }
     
-    ~stack(){while (pop());}
+    ~stack()
+    {
+        while (pop()) {}
+        // 最后一批退役节点没有后续 pop 来触发回收，这里补一次终扫，避免节点壳泄漏
+        delete_nodes_with_no_hazards();
+    }
 };
 
 /// A thread-safe atomic pointer that owns its pointee.
