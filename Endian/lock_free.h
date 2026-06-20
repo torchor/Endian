@@ -167,6 +167,55 @@ public:
     ~stack(){while (pop());}
 };
 
+template<typename  T>
+struct auto_release_pointer{
+    std::atomic<const T*> p{};
+    
+    struct hazard_lock
+    {
+        hazard_lock(const T *p):rawPointer(p),hp(get_hazard_pointer_for_current_thread()){hp.store(p);}
+        hazard_lock(hazard_lock &&v):rawPointer(v.rawPointer),hp(v.hp){v.rawPointer = nullptr;}
+        const T* operator ->()
+        {
+            return rawPointer;
+        }
+        
+        ~hazard_lock(){
+            if (rawPointer) {
+                hp.store(nullptr); ///  当声明完成，清除风险指针
+            }
+        }
+    private:
+        T *rawPointer;
+        std::atomic<void*> &hp;
+    };
+    
+    ///safe read
+    hazard_lock safe_read()
+    {
+        return hazard_lock(p);
+    }
+    
+    auto_release_pointer(const T*_p):p(_p){}
+    
+    auto_release_pointer& operator=(const T*_p)
+    {
+        auto old = p.load();
+        while (!p.compare_exchange_weak(old, _p));
+        if (old) {
+            if(outstanding_hazard_pointers_for(old))
+            {
+                reclaim_later(old);
+            }
+            else
+            {
+                delete old;
+            }
+        }
+        return *this;
+    }
+};
+
 }
 
 #endif /* lock_free_h */
