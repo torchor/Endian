@@ -194,7 +194,7 @@ public:
 ///   auto lock = ptr.safe_read();   // safe concurrent read
 ///   lock->bar();                   // access via RAII lock
 ///   ptr = new Foo();               // old value safely reclaimed
-template<typename  T>
+template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct atomic_owner_ptr{
     struct hazard_lock
     {
