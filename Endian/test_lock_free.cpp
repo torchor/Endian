@@ -70,6 +70,26 @@ std::atomic<long> Tracked::alive{0};
 std::atomic<long> Tracked::constructed{0};
 std::atomic<long> Tracked::destroyed{0};
 
+// Guarded：用于 atomic_owner_ptr 测试的探针。
+//   chk == (v ^ MAGIC) 成立 ⇔ 对象有效（未析构）。析构时写入毒值，
+//   于是“读到已析构对象”可被 valid() 当场抓到，与 ASan 的 UAF 检测互补。
+struct Guarded {
+    static std::atomic<long> alive;
+    static constexpr int MAGIC = 0x5A5A1234;
+    int v;
+    int chk;
+    explicit Guarded(int x) : v(x), chk(x ^ MAGIC) {
+        alive.fetch_add(1, std::memory_order_relaxed);
+    }
+    ~Guarded() {
+        chk = 0xDEAD;
+        v   = -1;
+        alive.fetch_add(-1, std::memory_order_relaxed);
+    }
+    bool valid() const { return chk == (v ^ MAGIC); }
+};
+std::atomic<long> Guarded::alive{0};
+
 // 把全局延迟回收链表彻底排空（无 hazard pointer 占用时会真正 delete）。
 // 多调用几次以处理“被重新挂回链表”的节点。
 static void drain_reclaim_list() {
@@ -321,13 +341,132 @@ static void test_global_balance() {
     TEST("全部测试结束：所有 Tracked 已析构", Tracked::alive.load() == 0);
     TEST("全部测试结束：构造数 == 析构数",
          Tracked::constructed.load() == Tracked::destroyed.load());
+    TEST("全部测试结束：所有 Guarded 已析构", Guarded::alive.load() == 0);
     TEST("全部测试结束：回收链表为空",
          lock_free::nodes_to_reclaim.load() == nullptr);
 }
 
+// ═════════════════════════════════════════════
+//  atomic_owner_ptr 测试
+// ═════════════════════════════════════════════
+
+// ── Case 12：基本读 / 空指针语义 ──────────────
+static void test_owner_basic_read() {
+    const long base = Guarded::alive.load();
+    {
+        lock_free::atomic_owner_ptr<Guarded> p(new Guarded(7));
+        auto lk = p.safe_read();
+        TEST("owner: safe_read 非空", (bool)lk);
+        TEST("owner: 读到构造值",     lk && lk->v == 7 && lk->valid());
+    }
+    drain_reclaim_list();
+    TEST("owner: 单值析构后零泄漏", Guarded::alive.load() == base);
+
+    lock_free::atomic_owner_ptr<Guarded> np(nullptr);
+    auto lk = np.safe_read();
+    TEST("owner: 空指针 safe_read 为 false", !(bool)lk);
+}
+
+// ── Case 13：赋值替换旧值并回收（零泄漏）─────────
+static void test_owner_assign_reclaims_old() {
+    const long base = Guarded::alive.load();
+    {
+        lock_free::atomic_owner_ptr<Guarded> p(new Guarded(1));
+        TEST("owner: 赋值前 1 个对象", Guarded::alive.load() == base + 1);
+        p = new Guarded(2);
+        p = new Guarded(3);
+        // 无任何 hazard_lock 持有 → 旧值应被立即 delete
+        TEST("owner: 连续赋值后仅剩 1 个对象", Guarded::alive.load() == base + 1);
+        auto lk = p.safe_read();
+        TEST("owner: 当前值为最后一次赋值", lk && lk->v == 3 && lk->valid());
+    }
+    drain_reclaim_list();
+    TEST("owner: 赋值链析构后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 14：持锁时替换 → 延迟回收分支（确定性）──
+//   reader 持 hazard_lock 时写者替换指针，旧对象必须被推迟删除，
+//   且持锁者仍能读到有效旧值；释放后旧对象才被真正回收。
+static void test_owner_deferred_reclaim() {
+    const long base = Guarded::alive.load();
+    {
+        lock_free::atomic_owner_ptr<Guarded> p(new Guarded(11));
+        {
+            auto lk = p.safe_read();                 // hazard pointer 指向旧对象 A
+            p = new Guarded(22);                      // 替换为 B；A 有风险指针 → reclaim_later
+            TEST("owner: 持锁替换时新旧并存(A被保护)",
+                 Guarded::alive.load() == base + 2);
+            TEST("owner: 持锁仍读到有效旧值", lk->v == 11 && lk->valid());
+        } // lk 析构，清除风险指针
+        auto lk2 = p.safe_read();
+        TEST("owner: 释放后当前值为新值", lk2->v == 22 && lk2->valid());
+    }
+    drain_reclaim_list();
+    TEST("owner: 延迟回收后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 15：多读者 + 单写者并发（UAF / 完整性 / 泄漏）──
+static void test_owner_concurrent_read_write() {
+    const long base = Guarded::alive.load();
+    constexpr int READERS = 6;
+    constexpr int WRITES  = 50000;
+    std::atomic<long> reads{0}, invalid{0};
+    {
+        lock_free::atomic_owner_ptr<Guarded> p(new Guarded(0));
+        std::atomic<bool> stop{false};
+
+        std::vector<std::thread> rs;
+        for (int t = 0; t < READERS; ++t)
+            rs.emplace_back([&] {
+                while (!stop.load(std::memory_order_relaxed)) {
+                    auto lk = p.safe_read();
+                    if (lk) {
+                        if (!lk->valid())                    // 读到已析构对象 = bug
+                            invalid.fetch_add(1, std::memory_order_relaxed);
+                        reads.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            });
+
+        for (int i = 1; i <= WRITES; ++i)
+            p = new Guarded(i);                              // 持续替换，旧值并发回收
+
+        stop.store(true, std::memory_order_relaxed);
+        for (auto& th : rs) th.join();
+    } // p 析构，释放当前值
+    drain_reclaim_list();
+
+    TEST("owner: 并发读未读到失效对象(无 UAF)", invalid.load() == 0);
+    TEST("owner: 并发读确实发生",               reads.load() > 0);
+    TEST("owner: 并发读写后零泄漏",             Guarded::alive.load() == base);
+}
+
+// ── Case 16：多写者并发（无双重释放 / 零泄漏）────
+//   多个写者各自 CAS 换出不同的旧指针，每个旧指针只被一个线程接管释放。
+static void test_owner_multi_writer() {
+    const long base = Guarded::alive.load();
+    constexpr int WRITERS = 6;
+    constexpr int PER     = 8000;
+    {
+        lock_free::atomic_owner_ptr<Guarded> p(new Guarded(0));
+        std::vector<std::thread> ws;
+        for (int t = 0; t < WRITERS; ++t)
+            ws.emplace_back([&, t] {
+                for (int i = 0; i < PER; ++i)
+                    p = new Guarded(t * PER + i + 1);
+            });
+        for (auto& th : ws) th.join();
+
+        auto lk = p.safe_read();
+        TEST("owner: 多写者后当前值有效", lk && lk->valid());
+    }
+    drain_reclaim_list();
+    TEST("owner: 多写者并发后零泄漏(无双重释放)", Guarded::alive.load() == base);
+}
+
 // ─────────────────────────────────────────────
 int main() {
-    std::cout << "=== lock_free::stack 完整测试 ===\n\n";
+    std::cout << "=== lock_free 完整测试 ===\n\n";
 
     test_single_thread_basic();
     test_shared_ptr_semantics();
@@ -339,6 +478,13 @@ int main() {
     test_concurrent_mixed_no_leak();
     test_hazard_reclaim_path_no_leak();
     test_hazard_slot_reuse();
+
+    test_owner_basic_read();
+    test_owner_assign_reclaims_old();
+    test_owner_deferred_reclaim();
+    test_owner_concurrent_read_write();
+    test_owner_multi_writer();
+
     test_global_balance();
 
     std::cout << "\n----------------------------------------\n";

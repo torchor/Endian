@@ -180,11 +180,25 @@ template<typename  T>
 struct atomic_owner_ptr{
     struct hazard_lock
     {
-        hazard_lock(const T *p):rawPointer(p),hp(get_hazard_pointer_for_current_thread()){hp.store(p);}
-        hazard_lock(hazard_lock &&v):rawPointer(v.rawPointer),hp(v.hp){v.rawPointer = nullptr;}
-        
-        const T* operator ->(){return rawPointer;}
-        const T& operator*()  { return *rawPointer; }
+        /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
+        /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
+        explicit hazard_lock(std::atomic<const T*>& src)
+            :rawPointer(nullptr),hp(get_hazard_pointer_for_current_thread())
+        {
+            const T* ptr = src.load();
+            do {
+                rawPointer = ptr;
+                hp.store(const_cast<T*>(ptr));
+                ptr = src.load();
+            } while (ptr != rawPointer);
+        }
+        hazard_lock(hazard_lock &&v) noexcept :rawPointer(v.rawPointer),hp(v.hp){v.rawPointer = nullptr;}
+        hazard_lock(const hazard_lock&)=delete;
+        hazard_lock& operator=(const hazard_lock&)=delete;
+
+        const T* operator ->() const {return rawPointer;}
+        const T& operator*()   const { return *rawPointer; }
+        const T* get()         const { return rawPointer; }
         explicit operator bool() const { return rawPointer != nullptr; }
 
         ~hazard_lock(){
@@ -193,7 +207,7 @@ struct atomic_owner_ptr{
             }
         }
     private:
-        T *rawPointer;
+        const T *rawPointer;
         std::atomic<void*> &hp;
     };
     
