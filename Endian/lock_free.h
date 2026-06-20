@@ -123,7 +123,7 @@ private:
         data(std::make_shared<T>(data_)) // 2 让std::shared_ptr指向新分配出来的T
         {}
     };
-    std::atomic<node*> head;
+    std::atomic<node*> head{};
 public:
     inline void push(T const& data)
     {
