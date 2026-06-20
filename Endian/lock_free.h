@@ -54,7 +54,7 @@ public:
 };
 
 template<uint8_t index=0>
-inline std::atomic<void*>& get_hz_slot_cache_for_current_thread()
+inline std::atomic<void*>& get_hp_cache_for_current_thread()
 {
     thread_local static hp_owner hazard;
     return hazard.get_pointer();
@@ -63,7 +63,7 @@ inline std::atomic<void*>& get_hz_slot_cache_for_current_thread()
 
 inline std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
 {
-    auto&&cache = get_hz_slot_cache_for_current_thread();
+    auto&&cache = get_hp_cache_for_current_thread();
     if (cache.load() == nullptr) {   // ← 槽位空闲，直接用
         return cache;
     }
@@ -145,7 +145,7 @@ public:
     }
     inline std::shared_ptr<T> pop()
     {
-        std::atomic<void*>&hp=get_hz_slot_cache_for_current_thread();
+        std::atomic<void*>&hp=get_hp_cache_for_current_thread();
         node* old_head=head.load();
         do
         {
