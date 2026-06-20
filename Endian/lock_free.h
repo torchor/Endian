@@ -1,6 +1,6 @@
 //
 //  lock_free.h
-//  Endian
+//  lock-free algorithms and data structures
 //
 //  Created by Matthew on 2026/6/20.
 //
