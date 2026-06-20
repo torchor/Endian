@@ -436,7 +436,7 @@ static void test_owner_concurrent_read_write() {
         stop.store(true, std::memory_order_relaxed);
         for (auto& th : rs) th.join();
     } // p 析构，释放当前值
-    drain_reclaim_list();
+   // drain_reclaim_list();
 
     TEST("owner: 并发读未读到失效对象(无 UAF)", invalid.load() == 0);
     TEST("owner: 并发读确实发生",               reads.load() > 0);
