@@ -167,8 +167,17 @@ public:
     ~stack(){while (pop());}
 };
 
+/// A thread-safe atomic pointer that owns its pointee.
+/// Automatically defers deletion of the old value using hazard pointers,
+/// ensuring no thread is accessing it before it is freed.
+///
+/// Usage:
+///   atomic_owner_ptr<Foo> ptr(new Foo());
+///   auto lock = ptr.safe_read();   // safe concurrent read
+///   lock->bar();                   // access via RAII lock
+///   ptr = new Foo();               // old value safely reclaimed
 template<typename  T>
-struct auto_release_pointer{
+struct atomic_owner_ptr{
     std::atomic<const T*> p{};
     
     struct hazard_lock
@@ -195,9 +204,9 @@ struct auto_release_pointer{
         return hazard_lock(p);
     }
     
-    auto_release_pointer(const T*_p):p(_p){}
+    atomic_owner_ptr(const T*_p):p(_p){}
     
-    auto_release_pointer& operator=(const T*_p)
+    atomic_owner_ptr& operator=(const T*_p)
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
