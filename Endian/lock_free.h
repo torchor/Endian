@@ -178,8 +178,6 @@ public:
 ///   ptr = new Foo();               // old value safely reclaimed
 template<typename  T>
 struct atomic_owner_ptr{
-    std::atomic<const T*> p{};
-    
     struct hazard_lock
     {
         hazard_lock(const T *p):rawPointer(p),hp(get_hazard_pointer_for_current_thread()){hp.store(p);}
@@ -199,10 +197,7 @@ struct atomic_owner_ptr{
     };
     
     ///safe read
-    hazard_lock safe_read()
-    {
-        return hazard_lock(p);
-    }
+    hazard_lock safe_read(){return hazard_lock(p);}
     
     atomic_owner_ptr(const T*_p):p(_p){}
     
@@ -222,6 +217,9 @@ struct atomic_owner_ptr{
         }
         return *this;
     }
+    
+private:
+    std::atomic<const T*> p{};
 };
 
 }
