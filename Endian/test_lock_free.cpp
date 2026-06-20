@@ -80,11 +80,13 @@ struct Guarded {
     int chk;
     explicit Guarded(int x) : v(x), chk(x ^ MAGIC) {
         alive.fetch_add(1, std::memory_order_relaxed);
+        std::cout << "Guarded create:" << (void*)this << " " << alive.load() << std::endl;
     }
     ~Guarded() {
         chk = 0xDEAD;
         v   = -1;
         alive.fetch_add(-1, std::memory_order_relaxed);
+        std::cout << "Guarded desctory:" << (void*)this << " " << alive.load() << std::endl;
     }
     bool valid() const { return chk == (v ^ MAGIC); }
 };
@@ -401,7 +403,7 @@ static void test_owner_deferred_reclaim() {
         auto lk2 = p.safe_read();
         TEST("owner: 释放后当前值为新值", lk2->v == 22 && lk2->valid());
     }
-    drain_reclaim_list();
+  //  drain_reclaim_list();
     TEST("owner: 延迟回收后零泄漏", Guarded::alive.load() == base);
 }
 
