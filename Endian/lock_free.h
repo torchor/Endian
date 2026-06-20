@@ -235,14 +235,14 @@ struct atomic_owner_ptr{
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
-        if (old) {
-            if(outstanding_hazard_pointers_for(const_cast<T*>(old)))
+        if (auto raw = const_cast<T*>(old)) {
+            if(outstanding_hazard_pointers_for(raw))
             {
-                reclaim_later(old);
+                reclaim_later(raw);
             }
             else
             {
-                delete old;
+                delete raw;
             }
             delete_nodes_with_no_hazards();
         }
