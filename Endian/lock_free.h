@@ -61,6 +61,17 @@ inline std::atomic<void*>& get_hazard_pointer_for_current_thread()
 }
 
 
+inline std::atomic<void*>& get_avaliable_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
+{
+    auto&&cache = get_hazard_pointer_for_current_thread();
+    if (cache.load() == nullptr) {   // ← 槽位空闲，直接用
+        return cache;
+    }
+    auto pNew = std::make_unique<hp_owner>();///从全局槽中，临时申请一个新的
+    ptr.swap(pNew);
+    return  ptr->get_pointer();
+}
+
 template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct data_to_reclaim
 {
@@ -184,9 +195,8 @@ struct atomic_owner_ptr{
         /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
         /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
         explicit hazard_lock(std::atomic<const T*>& src)
-            :rawPointer(nullptr),hp(get_hazard_pointer_for_current_thread())
+            :rawPointer(nullptr),hp(get_avaliable_hazard_pointer_for_current_thread(p_hp))
         {
-            assert(hp.load() == nullptr && "hazard slot already in use on this thread");
             const T* ptr = src.load();
             do {
                 rawPointer = ptr;
@@ -194,7 +204,7 @@ struct atomic_owner_ptr{
                 ptr = src.load();
             } while (ptr != rawPointer);
         }
-        hazard_lock(hazard_lock &&v) noexcept :rawPointer(v.rawPointer),hp(v.hp){v.rawPointer = nullptr;}
+        hazard_lock(hazard_lock &&v) noexcept :rawPointer(v.rawPointer),hp(v.hp),p_hp(std::move(v.p_hp)){v.rawPointer = nullptr;}
         hazard_lock(const hazard_lock&)=delete;
         hazard_lock& operator=(const hazard_lock&)=delete;
 
@@ -209,8 +219,9 @@ struct atomic_owner_ptr{
             }
         }
     private:
+        std::unique_ptr<hp_owner> p_hp{};//全局槽中动态临时申请一个,当前hazard_lock对象释放后，将自动还回全局槽中
         const T *rawPointer;
-        std::atomic<void*> &hp;
+        std::atomic<void*> &hp;///默认从当前线程的Local_thread中拿，如果已经被使用了则去全局槽中动态临时申请一个
     };
     
     ///safe read
