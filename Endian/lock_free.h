@@ -175,11 +175,10 @@ struct auto_release_pointer{
     {
         hazard_lock(const T *p):rawPointer(p),hp(get_hazard_pointer_for_current_thread()){hp.store(p);}
         hazard_lock(hazard_lock &&v):rawPointer(v.rawPointer),hp(v.hp){v.rawPointer = nullptr;}
-        const T* operator ->()
-        {
-            return rawPointer;
-        }
-        
+        const T* operator ->(){return rawPointer;}
+        const T& operator*()  { return *rawPointer; }
+        explicit operator bool() const { return rawPointer != nullptr; }
+
         ~hazard_lock(){
             if (rawPointer) {
                 hp.store(nullptr); ///  当声明完成，清除风险指针
