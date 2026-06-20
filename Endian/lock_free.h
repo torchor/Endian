@@ -17,6 +17,7 @@
 namespace lock_free {
 
 constexpr auto max_hazard_pointers=128;
+constexpr int threshold = 512;
 struct hazard_pointer
 {
     std::atomic_flag occupied;
@@ -84,10 +85,12 @@ struct data_to_reclaim
 struct empty_type{};
 using retire_node = data_to_reclaim<empty_type>;
 inline std::atomic<retire_node*> nodes_to_reclaim;
+inline std::atomic<uint32_t> retire_count{0};
 inline void add_to_reclaim_list(retire_node* node)
 {
     node->next=nodes_to_reclaim.load();
     while(!nodes_to_reclaim.compare_exchange_weak(node->next,node));
+    retire_count.fetch_add(1);
 }
 
 inline bool outstanding_hazard_pointers_for(void* p)
@@ -109,6 +112,8 @@ inline void reclaim_later(T* data)
 }
 inline void delete_nodes_with_no_hazards()
 {
+    if (retire_count.load() < threshold) return;
+    
     std::unordered_set<void*> protected_ptrs;
     for(unsigned i=0;i<max_hazard_pointers;++i)
     {
@@ -119,6 +124,7 @@ inline void delete_nodes_with_no_hazards()
     }
     
     auto current=nodes_to_reclaim.exchange(nullptr);
+    retire_count.store(0);
     while(current)
     {
         auto const next=current->next;
