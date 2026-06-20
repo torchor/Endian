@@ -41,7 +41,7 @@ public:
         }
         throw std::runtime_error("No hazard pointers available");
     }
-    std::atomic<void*>& get_pointer()
+    inline std::atomic<void*>& get_pointer()
     {
         return hp->pointer;
     }
@@ -53,7 +53,7 @@ public:
 };
 
 template<uint8_t index=0>
-std::atomic<void*>& get_hazard_pointer_for_current_thread()
+inline std::atomic<void*>& get_hazard_pointer_for_current_thread()
 {
     thread_local static hp_owner hazard;
     return hazard.get_pointer();
@@ -71,13 +71,13 @@ struct data_to_reclaim
 struct empty_type{};
 using retire_node = data_to_reclaim<empty_type>;
 std::atomic<retire_node*> nodes_to_reclaim;
-void add_to_reclaim_list(retire_node* node)
+inline void add_to_reclaim_list(retire_node* node)
 {
     node->next=nodes_to_reclaim.load();
     while(!nodes_to_reclaim.compare_exchange_weak(node->next,node));
 }
 
-bool outstanding_hazard_pointers_for(void* p)
+inline bool outstanding_hazard_pointers_for(void* p)
 {
   for(unsigned i=0;i<max_hazard_pointers;++i)
   {
@@ -90,11 +90,11 @@ bool outstanding_hazard_pointers_for(void* p)
 }
 
 template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
-void reclaim_later(T* data)
+inline void reclaim_later(T* data)
 {
     add_to_reclaim_list(reinterpret_cast<retire_node*>(new data_to_reclaim<T>(data)));
 }
-void delete_nodes_with_no_hazards()
+inline void delete_nodes_with_no_hazards()
 {
     auto current=nodes_to_reclaim.exchange(nullptr);
     while(current)
@@ -125,13 +125,13 @@ private:
     };
     std::atomic<node*> head;
 public:
-    void push(T const& data)
+    inline void push(T const& data)
     {
         node* const new_node=new node(data);
         new_node->next=head.load();
         while(!head.compare_exchange_weak(new_node->next,new_node));
     }
-    std::shared_ptr<T> pop()
+    inline std::shared_ptr<T> pop()
     {
         std::atomic<void*>&hp=get_hazard_pointer_for_current_thread();
         node* old_head=head.load();
