@@ -68,7 +68,12 @@ struct data_to_reclaim
     data_to_reclaim(T* p):data(p),next(0){}
    virtual ~data_to_reclaim()
     {
-       if constexpr (!std::is_void_v<T>) 
+       if 
+#if __cplusplus >= 201703L
+           constexpr
+#else
+#endif
+           (!std::is_void_v<T>)
        {
            delete data;
        }
