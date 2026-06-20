@@ -54,16 +54,16 @@ public:
 };
 
 template<uint8_t index=0>
-inline std::atomic<void*>& get_hazard_pointer_for_current_thread()
+inline std::atomic<void*>& get_hz_slot_cache_for_current_thread()
 {
     thread_local static hp_owner hazard;
     return hazard.get_pointer();
 }
 
 
-inline std::atomic<void*>& get_avaliable_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
+inline std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
 {
-    auto&&cache = get_hazard_pointer_for_current_thread();
+    auto&&cache = get_hz_slot_cache_for_current_thread();
     if (cache.load() == nullptr) {   // ← 槽位空闲，直接用
         return cache;
     }
@@ -145,7 +145,7 @@ public:
     }
     inline std::shared_ptr<T> pop()
     {
-        std::atomic<void*>&hp=get_hazard_pointer_for_current_thread();
+        std::atomic<void*>&hp=get_hz_slot_cache_for_current_thread();
         node* old_head=head.load();
         do
         {
@@ -195,7 +195,7 @@ struct atomic_owner_ptr{
         /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
         /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
         explicit hazard_lock(std::atomic<const T*>& src)
-            :rawPointer(nullptr),hp(get_avaliable_hazard_pointer_for_current_thread(p_hp))
+            :rawPointer(nullptr),hp(get_hazard_pointer_for_current_thread(p_hp))
         {
             const T* ptr = src.load();
             do {
