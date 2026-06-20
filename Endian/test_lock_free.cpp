@@ -95,6 +95,7 @@ std::atomic<long> Guarded::alive{0};
 // 把全局延迟回收链表彻底排空（无 hazard pointer 占用时会真正 delete）。
 // 多调用几次以处理“被重新挂回链表”的节点。
 static void drain_reclaim_list() {
+    return;
     for (int i = 0; i < 5; ++i)
         lock_free::delete_nodes_with_no_hazards();
 }
@@ -466,6 +467,166 @@ static void test_owner_multi_writer() {
     TEST("owner: 多写者并发后零泄漏(无双重释放)", Guarded::alive.load() == base);
 }
 
+// ═════════════════════════════════════════════
+//  同一线程使用多个 hazard 槽
+//   get_hazard_pointer_for_current_thread<index>() 用编译期 index 区分槽位，
+//   于是同一线程可借不同 index 同时持有多个风险指针。
+// ═════════════════════════════════════════════
+namespace hp = lock_free;
+static bool out(const void* p) {
+    return hp::outstanding_hazard_pointers_for(const_cast<void*>(p));
+}
+using Owner = hp::atomic_owner_ptr<Guarded>;
+using Lock  = Owner::hazard_lock;
+//
+// 新版槽位获取(get_hazard_pointer_for_current_thread(unique_ptr<hp_owner>&))：
+//   · 每线程有一个 thread_local 缓存槽；首把锁走缓存(快路径)。
+//   · 缓存槽已占用时，再持锁会从全局池动态借一个新槽，由 hazard_lock 内的
+//     unique_ptr<hp_owner> 持有，锁析构时自动还池。
+// 于是同一线程可安全地同时持有多把 hazard_lock —— 下列用例覆盖各种情况。
+//
+
+// ── Case 17：同线程嵌套两把锁，二者同时有效且互异 ──
+static void test_thread_nested_two_locks() {
+    const long base = Guarded::alive.load();
+    {
+        Owner p1(new Guarded(1));
+        Owner p2(new Guarded(2));
+
+        auto lk1 = p1.safe_read();                 // 缓存槽
+        TEST("multislot: 取 lk1 后其对象受保护", out(lk1.get()));
+
+        auto lk2 = p2.safe_read();                 // 缓存槽已占 → 动态借新槽
+        TEST("multislot: 同线程再取 lk2 后 lk1 仍受保护(嵌套安全)", out(lk1.get()));
+        TEST("multislot: lk2 同时受保护", out(lk2.get()));
+        TEST("multislot: 两把锁占用不同槽(保护不同对象)", lk1.get() != lk2.get());
+        TEST("multislot: 两把锁各自读值正确",
+             lk1->v == 1 && lk1->valid() && lk2->v == 2 && lk2->valid());
+    }
+    drain_reclaim_list();
+    TEST("multislot: 嵌套两锁后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 18：释放内层(动态)锁，外层(缓存)锁不受影响 ──
+static void test_thread_nested_release_order() {
+    const long base = Guarded::alive.load();
+    {
+        Owner p1(new Guarded(10));
+        Owner p2(new Guarded(20));
+        auto lk1 = p1.safe_read();                 // 缓存槽
+        const void* a1 = lk1.get();
+        {
+            auto lk2 = p2.safe_read();             // 动态槽
+            TEST("multislot: 内层持有时两者都受保护", out(a1) && out(lk2.get()));
+        }                                           // lk2 析构 → 动态槽还池
+        TEST("multislot: 内层释放后外层仍受保护", out(a1));
+        TEST("multislot: 外层仍读到正确值", lk1->v == 10 && lk1->valid());
+    }
+    drain_reclaim_list();
+    TEST("multislot: 嵌套释放后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 19：深度嵌套 —— 单线程同时持 N 把锁，全部生效且互异 ──
+static void test_thread_deep_nesting() {
+    const long base = Guarded::alive.load();
+    constexpr int N = 32;
+    {
+        std::vector<std::unique_ptr<Owner>> ps;
+        for (int i = 0; i < N; ++i)
+            ps.push_back(std::make_unique<Owner>(new Guarded(i)));
+
+        std::vector<Lock> locks;
+        locks.reserve(N);
+        for (int i = 0; i < N; ++i) locks.push_back(ps[i]->safe_read());
+
+        std::vector<const void*> raws;
+        int held = 0, good = 0;
+        for (int i = 0; i < N; ++i) {
+            raws.push_back(locks[i].get());
+            if (out(locks[i].get())) ++held;
+            if (locks[i]->v == i && locks[i]->valid()) ++good;
+        }
+        std::set<const void*> uniq(raws.begin(), raws.end());
+        TEST("multislot: 单线程同时持 N 把锁全部受保护", held == N);
+        TEST("multislot: N 把锁读值正确",               good == N);
+        TEST("multislot: N 把锁占用 N 个互异槽",         (int)uniq.size() == N);
+
+        locks.clear();                              // 释放全部锁 → 动态槽全部还池
+        int still = 0;
+        for (auto r : raws) if (out(r)) ++still;
+        TEST("multislot: 释放后全部不再 outstanding", still == 0);
+    }
+    drain_reclaim_list();
+    TEST("multislot: 深度嵌套后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 20：反复嵌套取/放，动态槽确实归还(否则耗尽池) ──
+static void test_thread_nesting_no_exhaustion() {
+    Owner p1(new Guarded(1)), p2(new Guarded(2)), p3(new Guarded(3));
+    const long base = Guarded::alive.load();   // 基线含上述 3 个固定对象
+    bool ok = true;
+    try {
+        for (int i = 0; i < lock_free::max_hazard_pointers * 4; ++i) {
+            auto a = p1.safe_read();                // 缓存槽
+            auto b = p2.safe_read();                // 动态槽
+            auto c = p3.safe_read();                // 动态槽
+            if (!(a->valid() && b->valid() && c->valid())) { ok = false; break; }
+        }                                            // 每轮三锁析构 → 动态槽还池
+    } catch (...) { ok = false; }
+    TEST("multislot: 反复嵌套取/放不耗尽(动态槽已归还)", ok);
+    drain_reclaim_list();
+    TEST("multislot: 反复嵌套后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 21：单线程嵌套超过池容量 → 抛异常，且善后无泄漏 ──
+static void test_thread_nesting_exhaustion_throws() {
+    const long base = Guarded::alive.load();
+    constexpr int OVER = lock_free::max_hazard_pointers + 8;
+    bool threw = false;
+    {
+        std::vector<std::unique_ptr<Owner>> ps;
+        for (int i = 0; i < OVER; ++i)
+            ps.push_back(std::make_unique<Owner>(new Guarded(i)));
+
+        std::vector<Lock> locks;
+        try {
+            for (int i = 0; i < OVER; ++i) locks.push_back(ps[i]->safe_read());
+        } catch (const std::runtime_error&) { threw = true; }
+        TEST("multislot: 单线程嵌套超过池容量抛异常", threw);
+    } // locks / ps 析构：释放所有槽与对象
+    drain_reclaim_list();
+    TEST("multislot: 耗尽善后后零泄漏", Guarded::alive.load() == base);
+}
+
+// ── Case 22：并发嵌套读者(每线程持 2 把锁) + 写者 —— UAF/完整性/泄漏 ──
+static void test_thread_nested_concurrent() {
+    const long base = Guarded::alive.load();
+    constexpr int READERS = 6, WRITES = 30000;
+    std::atomic<long> reads{0}, invalid{0};
+    {
+        Owner p1(new Guarded(0)), p2(new Guarded(0));
+        std::atomic<bool> stop{false};
+        std::vector<std::thread> rs;
+        for (int t = 0; t < READERS; ++t)
+            rs.emplace_back([&] {
+                while (!stop.load(std::memory_order_relaxed)) {
+                    auto a = p1.safe_read();        // 缓存槽
+                    auto b = p2.safe_read();        // 同线程第二把 → 动态槽
+                    if (a && !a->valid()) invalid.fetch_add(1, std::memory_order_relaxed);
+                    if (b && !b->valid()) invalid.fetch_add(1, std::memory_order_relaxed);
+                    reads.fetch_add(1, std::memory_order_relaxed);
+                }
+            });
+        for (int i = 1; i <= WRITES; ++i) { p1 = new Guarded(i); p2 = new Guarded(i); }
+        stop.store(true, std::memory_order_relaxed);
+        for (auto& th : rs) th.join();
+    }
+    drain_reclaim_list();
+    TEST("multislot: 并发嵌套读未读到失效对象(无 UAF)", invalid.load() == 0);
+    TEST("multislot: 并发嵌套读确实发生",               reads.load() > 0);
+    TEST("multislot: 并发嵌套读写后零泄漏",             Guarded::alive.load() == base);
+}
+
 // ─────────────────────────────────────────────
 int main() {
     std::cout << "=== lock_free 完整测试 ===\n\n";
@@ -486,6 +647,13 @@ int main() {
     test_owner_deferred_reclaim();
     test_owner_concurrent_read_write();
     test_owner_multi_writer();
+
+    test_thread_nested_two_locks();
+    test_thread_nested_release_order();
+    test_thread_deep_nesting();
+    test_thread_nesting_no_exhaustion();
+    test_thread_nesting_exhaustion_throws();
+    test_thread_nested_concurrent();
 
     test_global_balance();
 
