@@ -145,7 +145,8 @@ public:
     }
     inline std::shared_ptr<T> pop()
     {
-        std::atomic<void*>&hp=get_hp_cache_for_current_thread();
+        std::unique_ptr<hp_owner> p_hp;///如果是动态申请的槽，析构时自动还到全局池中
+        std::atomic<void*>&hp=get_hazard_pointer_for_current_thread(p_hp);
         node* old_head=head.load();
         do
         {
