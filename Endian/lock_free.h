@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <memory>
 #include <assert.h>
+#include <unordered_set>
 
 namespace lock_free {
 
@@ -108,11 +109,20 @@ inline void reclaim_later(T* data)
 }
 inline void delete_nodes_with_no_hazards()
 {
+    std::unordered_set<void*> protected_ptrs;
+    for(unsigned i=0;i<max_hazard_pointers;++i)
+    {
+        if(auto v = hp_owner::hazard_slots[i].pointer.load(std::memory_order_relaxed))
+        {
+            protected_ptrs.insert(v);
+        }
+    }
+    
     auto current=nodes_to_reclaim.exchange(nullptr);
     while(current)
     {
         auto const next=current->next;
-        if(!outstanding_hazard_pointers_for(current->data))
+        if(!protected_ptrs.count(current->data))
         {
             delete current;
         }
