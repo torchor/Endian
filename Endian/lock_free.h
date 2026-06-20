@@ -60,7 +60,7 @@ std::atomic<void*>& get_hazard_pointer_for_current_thread()
 }
 
 
-template<typename T,typename = std::enable_if_t<!std::is_void_v<T>>>
+template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct data_to_reclaim
 {
     T* data;
@@ -89,7 +89,7 @@ bool outstanding_hazard_pointers_for(void* p)
   return false;
 }
 
-template<typename T,typename = std::enable_if_t<!std::is_void_v<T>>>
+template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 void reclaim_later(T* data)
 {
     add_to_reclaim_list(reinterpret_cast<retire_node*>(new data_to_reclaim<T>(data)));
