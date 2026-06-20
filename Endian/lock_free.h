@@ -70,7 +70,7 @@ struct data_to_reclaim
 };
 struct empty_type{};
 using retire_node = data_to_reclaim<empty_type>;
-std::atomic<retire_node*> nodes_to_reclaim;
+inline std::atomic<retire_node*> nodes_to_reclaim;
 inline void add_to_reclaim_list(retire_node* node)
 {
     node->next=nodes_to_reclaim.load();
