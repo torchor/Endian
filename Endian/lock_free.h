@@ -11,6 +11,7 @@
 #include <atomic>
 #include <stdexcept>
 #include <memory>
+#include <assert.h>
 
 namespace lock_free {
 
@@ -185,6 +186,7 @@ struct atomic_owner_ptr{
         explicit hazard_lock(std::atomic<const T*>& src)
             :rawPointer(nullptr),hp(get_hazard_pointer_for_current_thread())
         {
+            assert(hp.load() == nullptr && "hazard slot already in use on this thread");
             const T* ptr = src.load();
             do {
                 rawPointer = ptr;
