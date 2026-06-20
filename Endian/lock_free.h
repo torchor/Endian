@@ -252,9 +252,12 @@ struct atomic_owner_ptr{
     hazard_lock safe_read(){return hazard_lock(p);}
     
     atomic_owner_ptr(const T*_p):p(_p){}
-    ~atomic_owner_ptr(){*this = nullptr; delete_nodes_with_no_hazards(true);}
+    ~atomic_owner_ptr(){set(nullptr, true);}
     
-    atomic_owner_ptr& operator=(const T*_p)
+    atomic_owner_ptr& operator=(const T*_p) {set(p, false);return *this;}
+    
+private:
+    void set(const T*_p,bool force)
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
@@ -267,12 +270,10 @@ struct atomic_owner_ptr{
             {
                 delete raw;
             }
-            delete_nodes_with_no_hazards();
+            delete_nodes_with_no_hazards(force);
         }
-        return *this;
     }
     
-private:
     std::atomic<const T*> p{};
 };
 
