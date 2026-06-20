@@ -163,6 +163,8 @@ public:
         }
         return res;
     }
+    
+    ~stack(){while (pop());}
 };
 
 }
