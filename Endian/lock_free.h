@@ -9,6 +9,8 @@
 #define ___lock___free___h____
 
 #include <atomic>
+#include <stdexcept>
+#include <memory>
 
 namespace lock_free {
 
