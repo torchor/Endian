@@ -254,7 +254,7 @@ struct atomic_owner_ptr{
     atomic_owner_ptr(const T*_p):p(_p){}
     ~atomic_owner_ptr(){set(nullptr, true);}
     
-    atomic_owner_ptr& operator=(const T*_p) {set(p, false);return *this;}
+    atomic_owner_ptr& operator=(const T*_p) {set(_p, false);return *this;}
     
 private:
     void set(const T*_p,bool force)
