@@ -66,18 +66,7 @@ struct data_to_reclaim
     T* data;
     data_to_reclaim* next;
     data_to_reclaim(T* p):data(p),next(0){}
-   virtual ~data_to_reclaim()
-    {
-       if 
-#if __cplusplus >= 201703L
-           constexpr
-#else
-#endif
-           (!std::is_void_v<T>)
-       {
-           delete data;
-       }
-    }
+    virtual ~data_to_reclaim(){delete data;}
 };
 std::atomic<data_to_reclaim<void>*> nodes_to_reclaim;
 void add_to_reclaim_list(data_to_reclaim<void>* node)
