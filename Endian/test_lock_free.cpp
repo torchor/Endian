@@ -80,13 +80,13 @@ struct Guarded {
     int chk;
     explicit Guarded(int x) : v(x), chk(x ^ MAGIC) {
         alive.fetch_add(1, std::memory_order_relaxed);
-        std::cout << "Guarded create:" << (void*)this << " " << alive.load() << std::endl;
+       // std::cout << "Guarded create:" << (void*)this << " " << alive.load() << std::endl;
     }
     ~Guarded() {
         chk = 0xDEAD;
         v   = -1;
         alive.fetch_add(-1, std::memory_order_relaxed);
-        std::cout << "Guarded desctory:" << (void*)this << " " << alive.load() << std::endl;
+       // std::cout << "Guarded desctory:" << (void*)this << " " << alive.load() << std::endl;
     }
     bool valid() const { return chk == (v ^ MAGIC); }
 };
@@ -148,7 +148,7 @@ static void test_no_leak_full_drain() {
         while (auto p = s.pop()) { (void)p; ++held; }   // 取出后立即释放
         TEST("push/pop 数量一致", held == N);
     }
-    drain_reclaim_list();
+   // drain_reclaim_list();
     TEST("全部 pop 后无存活实例(零泄漏)", Tracked::alive.load() == base);
 }
 
@@ -165,7 +165,7 @@ static void test_no_leak_destructor_drains() {
         TEST("析构前栈内对象存活", Tracked::alive.load() == base + N);
         // 不手动 pop，直接离开作用域 → 触发 ~stack
     }
-    drain_reclaim_list();
+    ///drain_reclaim_list();
     TEST("析构函数排空后无存活实例", Tracked::alive.load() == base);
 }
 
