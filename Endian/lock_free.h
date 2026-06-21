@@ -290,23 +290,23 @@ private:
 ///   ptr = new Foo();               // old value safely reclaimed
 template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct atomic_owner_ptr{
-    using CT = const T;
-    using hz_lock = hazard_lock<CT>;
+    using RawType = std::remove_const_t<T>;
+    using hz_lock = hazard_lock<T>;
     ///safe read
     hz_lock safe_read(){return hz_lock(p);}
     
     atomic_owner_ptr():atomic_owner_ptr(nullptr){}
-    atomic_owner_ptr(CT *_p):p(_p){}
+    atomic_owner_ptr(T *_p):p(_p){}
     ~atomic_owner_ptr(){set(nullptr, true);}
     
-    atomic_owner_ptr& operator=(CT*_p) {set(_p, false);return *this;}
+    atomic_owner_ptr& operator=(T*_p) {set(_p, false);return *this;}
     
 private:
-    void set(CT*_p,bool force)
+    void set(T*_p,bool force)
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
-        if (auto raw = const_cast<T*>(old)) {
+        if (auto raw = const_cast<RawType*>(old)) {
             auto &&retire_v = retire_list::get();
             if(hp_owner::hazard_domain.ptr_is_protected(raw))
             {
@@ -320,7 +320,7 @@ private:
         }
     }
     
-    std::atomic<CT*> p{};
+    std::atomic<T*> p{};
 };
 
 }
