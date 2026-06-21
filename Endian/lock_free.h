@@ -16,42 +16,81 @@
 
 namespace lock_free {
 constexpr int max_slot_cahce_per_thread  = 3;
-constexpr auto max_hazard_pointers=128;
 constexpr int threshold = 512;
 struct hazard_slot
 {
-    std::atomic_flag occupied;
-    std::atomic<void*> pointer;
+    std::atomic_flag occupied{};
+    std::atomic<void*> pointer{};
+    hazard_slot*       next{nullptr};
+};
+
+
+struct hp_domain {
+    
+    hazard_slot* acquire()
+    {
+        for (auto p = head.load(); p; p = p->next) {
+            if (!p->occupied.test_and_set())
+                return p;
+        }
+       
+        auto* slot = new hazard_slot();
+        slot->occupied.test_and_set();
+        slot->next = head.load();
+        while (!head.compare_exchange_weak(slot->next, slot));
+        return slot;
+    }
+
+    void release(hazard_slot* slot) {
+        slot->pointer.store(nullptr);
+        slot->occupied.clear();  // 标记空闲，不 delete
+    }
+
+    std::unordered_set<void*> protected_ptrs() {
+        std::unordered_set<void*> result;
+        for (auto p = head.load(); p; p = p->next)
+            if (auto ptr = p->pointer.load())
+                result.insert(ptr);
+        return result;
+    }
+
+    inline bool outstanding_hazard_pointers_for(void* p)
+    {
+        for (auto slot = head.load(); slot; slot = slot->next)
+                if (slot->pointer.load() == p)
+                    return true;
+        return false;
+    }
+    ~hp_domain() {
+        auto p = head.load();
+        while (p) {
+            auto next = p->next;
+            delete p;
+            p = next;
+        }
+    }
+
+private:
+    std::atomic<hazard_slot*> head{nullptr};
 };
 
 class hp_owner
 {
     hazard_slot* hp;
 public:
-   inline static hazard_slot hazard_slots[max_hazard_pointers];
+    inline static hp_domain hazard_domain;
     
     hp_owner(hp_owner const&)=delete;
     hp_owner operator=(hp_owner const&)=delete;
-    hp_owner():hp(nullptr)
-    {
-        for(unsigned i=0;i<max_hazard_pointers;++i)
-        {
-            if(!hazard_slots[i].occupied.test_and_set())
-            {
-                hp=&hazard_slots[i];
-                return;
-            }
-        }
-        throw std::runtime_error("No hazard pointers available");
-    }
+    hp_owner():hp(hazard_domain.acquire()){}
+    
     inline std::atomic<void*>& get_pointer()
     {
         return hp->pointer;
     }
     ~hp_owner()
     {
-        hp->pointer.store(nullptr);
-        hp->occupied.clear();
+        hazard_domain.release(hp);
     }
 };
 
@@ -98,17 +137,6 @@ inline void add_to_reclaim_list(retire_node* node)
     retire_count.fetch_add(1);
 }
 
-inline bool outstanding_hazard_pointers_for(void* p)
-{
-  for(unsigned i=0;i<max_hazard_pointers;++i)
-  {
-    if(hp_owner::hazard_slots[i].pointer.load()==p)
-    {
-      return true;
-    }
-}
-  return false;
-}
 
 template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 inline void reclaim_later(T* data)
@@ -122,14 +150,7 @@ inline void delete_nodes_with_no_hazards(bool force=false)
     auto current=nodes_to_reclaim.exchange(nullptr);
     retire_count.store(0);
 
-    std::unordered_set<void*> protected_ptrs;
-    for(unsigned i=0;i<max_hazard_pointers;++i)
-    {
-        if(auto v = hp_owner::hazard_slots[i].pointer.load())
-        {
-            protected_ptrs.insert(v);
-        }
-    }
+    auto&& protected_ptrs = hp_owner::hazard_domain.protected_ptrs();
 
     while(current)
     {
@@ -186,7 +207,7 @@ public:
         if(old_head)
         {
             res.swap(old_head->data);
-            if(outstanding_hazard_pointers_for(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
+            if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
             {
                 reclaim_later(old_head);  // 4
             }
@@ -265,7 +286,7 @@ private:
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
         if (auto raw = const_cast<T*>(old)) {
-            if(outstanding_hazard_pointers_for(raw))
+            if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(raw))
             {
                 reclaim_later(raw);
             }
