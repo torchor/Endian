@@ -251,7 +251,7 @@ struct hazard_lock
     using RawType = std::remove_const_t<T>;
     /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
     /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
-    explicit hazard_lock(std::atomic<const T*>& src):rawPointer(nullptr),hp(hp_owner::get_hazard_pointer_for_current_thread(p_hp))
+    explicit hazard_lock(std::atomic<T*>& src):rawPointer(nullptr),hp(hp_owner::get_hazard_pointer_for_current_thread(p_hp))
     {
         auto ptr = src.load();
         do {
@@ -290,18 +290,19 @@ private:
 ///   ptr = new Foo();               // old value safely reclaimed
 template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct atomic_owner_ptr{
-    using hz_lock = hazard_lock<const T>;
+    using CT = const T;
+    using hz_lock = hazard_lock<CT>;
     ///safe read
     hz_lock safe_read(){return hz_lock(p);}
     
     atomic_owner_ptr():atomic_owner_ptr(nullptr){}
-    atomic_owner_ptr(const T*_p):p(_p){}
+    atomic_owner_ptr(CT *_p):p(_p){}
     ~atomic_owner_ptr(){set(nullptr, true);}
     
-    atomic_owner_ptr& operator=(const T*_p) {set(_p, false);return *this;}
+    atomic_owner_ptr& operator=(CT*_p) {set(_p, false);return *this;}
     
 private:
-    void set(const T*_p,bool force)
+    void set(CT*_p,bool force)
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
@@ -319,7 +320,7 @@ private:
         }
     }
     
-    std::atomic<const T*> p{};
+    std::atomic<CT*> p{};
 };
 
 }
