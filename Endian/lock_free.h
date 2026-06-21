@@ -54,7 +54,7 @@ struct hp_domain {
         return result;
     }
 
-    inline bool outstanding_hazard_pointers_for(void* p)
+    inline bool ptr_is_protected(void* p)
     {
         for (auto slot = head.load(); slot; slot = slot->next)
             if (slot->pointer.load() == p)return true;
@@ -220,7 +220,7 @@ public:
         {
             res.swap(old_head->data);
             auto &&retire_v = retire::get();
-            if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
+            if(hp_owner::hazard_domain.ptr_is_protected(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
             {
                 retire_v.reclaim_later(old_head);  // 4
             }
@@ -300,7 +300,7 @@ private:
         while (!p.compare_exchange_weak(old, _p));
         if (auto raw = const_cast<T*>(old)) {
             auto &&retire_v = retire::get();
-            if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(raw))
+            if(hp_owner::hazard_domain.ptr_is_protected(raw))
             {
                 retire_v.reclaim_later(raw);
             }
