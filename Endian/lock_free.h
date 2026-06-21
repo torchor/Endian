@@ -123,7 +123,7 @@ public:
     }
 };
 
-struct retire
+struct retire_list
 {
     struct retire_node
     {
@@ -173,9 +173,9 @@ struct retire
             current=next;
         }
     }
-   inline static retire& get()
+   inline static retire_list& get()
     {
-        static retire v;
+        static retire_list v;
         return  v;
     }
 private:
@@ -225,7 +225,7 @@ public:
         if(old_head)
         {
             res.swap(old_head->data);
-            auto &&retire_v = retire::get();
+            auto &&retire_v = retire_list::get();
             if(hp_owner::hazard_domain.ptr_is_protected(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
             {
                 retire_v.reclaim_later(old_head);  // 4
@@ -242,7 +242,7 @@ public:
     ~stack()
     {
         while (pop()) {}
-        retire::get().delete_nodes_with_no_hazards(true);
+        retire_list::get().delete_nodes_with_no_hazards(true);
     }
 };
 
@@ -306,7 +306,7 @@ private:
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
         if (auto raw = const_cast<T*>(old)) {
-            auto &&retire_v = retire::get();
+            auto &&retire_v = retire_list::get();
             if(hp_owner::hazard_domain.ptr_is_protected(raw))
             {
                 retire_v.reclaim_later(raw);

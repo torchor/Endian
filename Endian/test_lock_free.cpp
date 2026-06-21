@@ -112,7 +112,7 @@ static size_t live_hazards() {
 }
 // 强制回收（无视批量阈值）：断言“此刻应已无残留”前调用
 static void force_drain() {
-    for (int i = 0; i < 3; ++i) hp::retire::get().delete_nodes_with_no_hazards(true);
+    for (int i = 0; i < 3; ++i) hp::retire_list::get().delete_nodes_with_no_hazards(true);
 }
 
 // ═════════════════════════════════════════════
