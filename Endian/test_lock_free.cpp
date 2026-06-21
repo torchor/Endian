@@ -29,17 +29,25 @@
 #include <vector>
 #include <set>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <chrono>
+#include <csignal>
+#if defined(__APPLE__)
+#  include <mach/mach.h>
+#endif
 
 // ─────────────────────────────────────────────
 // 极简测试框架
 // ─────────────────────────────────────────────
-static int g_pass = 0;
-static int g_fail = 0;
+static long g_pass = 0;
+static long g_fail = 0;
+static bool g_quiet = false;   // soak 模式下抑制 [PASS] 刷屏，只打印 [FAIL]
 
-#define TEST(name, expr) do {                                       \
-    if (expr) { std::cout << "[PASS] " << name << "\n"; ++g_pass; } \
-    else      { std::cout << "[FAIL] " << name                     \
-                          << "   (" #expr ")\n"; ++g_fail; }        \
+#define TEST(name, expr) do {                                                  \
+    if (expr) { if (!g_quiet) std::cout << "[PASS] " << name << "\n"; ++g_pass; } \
+    else      { std::cout << "[FAIL] " << name << "   (" #expr ")\n"; ++g_fail; } \
 } while (0)
 
 // ─────────────────────────────────────────────
@@ -96,7 +104,7 @@ using Lock  = Owner::hazard_lock;
 
 // 某指针当前是否被任一 hazard 槽保护
 static bool out(const void* p) {
-    return hp::hp_owner::hazard_domain.outstanding_hazard_pointers_for(const_cast<void*>(p));
+    return hp::hp_owner::hazard_domain.ptr_is_protected(const_cast<void*>(p));
 }
 // 当前活跃（pointer 非空）的 hazard 数 —— 观察域的增长/复用
 static size_t live_hazards() {
@@ -534,10 +542,8 @@ static void test_global_balance() {
     TEST("收尾: 无活跃 hazard", live_hazards() == 0);
 }
 
-// ─────────────────────────────────────────────
-int main() {
-    std::cout << "=== lock_free 完整测试（hp_domain 动态无界 + retire 单例 版）===\n\n";
-
+// 跑一遍完整套件（一次性）
+static void run_full_suite() {
     // Part 1: stack
     test_stack_basic();
     test_stack_shared_ptr();
@@ -548,14 +554,12 @@ int main() {
     test_stack_concurrent_pop();
     test_stack_concurrent_mixed();
     test_stack_hazard_reclaim();
-
     // Part 2: atomic_owner_ptr
     test_owner_basic();
     test_owner_assign_reclaims();
     test_owner_deferred_reclaim();
     test_owner_concurrent_read_write();
     test_owner_multi_writer();
-
     // Part 3: hp_domain 多槽 / 无界增长 / 复用
     test_nested_two_locks();
     test_nested_release_order();
@@ -563,8 +567,127 @@ int main() {
     test_repeated_nesting();
     test_nested_concurrent();
     test_domain_grows_and_reuses();
+}
 
-    // Part 4: 收尾
+// soak 模式只跑“并发/回收/增长”重负载用例（确定性单线程用例无需反复跑）
+static void run_soak_round() {
+    test_stack_concurrent_push();
+    test_stack_concurrent_pop();
+    test_stack_concurrent_mixed();
+    test_stack_hazard_reclaim();
+    test_owner_concurrent_read_write();
+    test_owner_multi_writer();
+    test_nested_concurrent();
+    test_unbounded_deep_nesting();
+    test_domain_grows_and_reuses();
+}
+
+// ─────────────────────────────────────────────
+// 进程当前常驻内存（KB）—— 用来识别内存是否随时间无界增长
+// ─────────────────────────────────────────────
+static size_t current_rss_kb() {
+#if defined(__APPLE__)
+    task_basic_info info;
+    mach_msg_type_number_t n = TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&info, &n) == KERN_SUCCESS)
+        return info.resident_size / 1024;
+#endif
+    return 0;
+}
+
+static std::atomic<bool> g_stop{false};
+static void on_signal(int) { g_stop.store(true); }
+
+// ─────────────────────────────────────────────
+// 长时间浸泡（soak）：循环跑重负载用例，期间持续校验不变量
+//   每轮结束后必须回到基线：alive(Tracked/Guarded)==0、live_hazards==0；
+//   常驻内存(RSS)应在首轮后趋于平台期（hazard 槽按峰值一次性分配、之后复用）。
+//   任一不变量被破坏 → 立即报告并退出非 0。
+// ─────────────────────────────────────────────
+static int soak_run(double limit_seconds) {
+    g_quiet = true;
+    std::signal(SIGINT,  on_signal);
+    std::signal(SIGTERM, on_signal);
+
+    using clock = std::chrono::steady_clock;
+    const auto  t0   = clock::now();
+    auto        beat = t0;
+    long        round = 0;
+    size_t      rss_first = 0, rss_peak = 0;
+
+    std::printf("=== soak 开始 ===  时长上限 = %s   (Ctrl-C 可随时停止)\n",
+                limit_seconds <= 0 ? "无限" : (std::to_string((long)limit_seconds) + "s").c_str());
+    std::fflush(stdout);
+
+    while (!g_stop.load()) {
+        run_soak_round();
+        ++round;
+
+        // —— 每轮收尾必须回到基线 ——
+        force_drain();
+        const long  ta = Tracked::alive.load();
+        const long  ga = Guarded::alive.load();
+        const size_t hz = live_hazards();
+        if (ta != 0 || ga != 0 || hz != 0) {
+            std::printf("\n[SOAK-FAIL] round %ld 不变量被破坏(疑似泄漏/回收异常): "
+                        "Tracked.alive=%ld Guarded.alive=%ld live_hazards=%zu\n",
+                        round, ta, ga, hz);
+            return 1;
+        }
+        if (g_fail != 0) {
+            std::printf("\n[SOAK-FAIL] round %ld 出现 %ld 个断言失败\n", round, g_fail);
+            return 1;
+        }
+
+        const auto now = clock::now();
+        const double elapsed = std::chrono::duration<double>(now - t0).count();
+        const size_t rss = current_rss_kb();
+        if (rss > rss_peak) rss_peak = rss;
+        if (rss_first == 0 && round >= 1) rss_first = rss;
+
+        // 每 ~15s 一次心跳
+        if (std::chrono::duration<double>(now - beat).count() >= 15.0) {
+            std::printf("[soak] t=%6.0fs round=%-7ld asserts=%-10ld alive(T/G)=%ld/%ld "
+                        "hz=%zu rss=%zuKB drift=%+ldKB\n",
+                        elapsed, round, g_pass, ta, ga, hz, rss,
+                        (long)rss - (long)rss_first);
+            std::fflush(stdout);
+            beat = now;
+        }
+        if (limit_seconds > 0 && elapsed >= limit_seconds) break;
+    }
+
+    const double total = std::chrono::duration<double>(clock::now() - t0).count();
+    std::printf("\n=== soak 结束 ===\n");
+    std::printf("用时 %.0fs   轮数 %ld   累计断言 %ld   失败 %ld\n", total, round, g_pass, g_fail);
+    std::printf("RSS 首轮=%zuKB 峰值=%zuKB 末值=%zuKB (漂移 %+ldKB)\n",
+                rss_first, rss_peak, current_rss_kb(),
+                (long)current_rss_kb() - (long)rss_first);
+    std::printf("Tracked 构造=%ld 析构=%ld alive=%ld | Guarded alive=%ld | live_hazards=%zu\n",
+                Tracked::constructed.load(), Tracked::destroyed.load(), Tracked::alive.load(),
+                Guarded::alive.load(), live_hazards());
+    const bool ok = (g_fail == 0 && Tracked::alive.load() == 0 &&
+                     Guarded::alive.load() == 0 && live_hazards() == 0);
+    std::printf("结论：%s\n", ok ? "OK（无泄漏/无失败/RSS 已平台化）" : "存在问题（见上）");
+    return ok ? 0 : 1;
+}
+
+// ─────────────────────────────────────────────
+//   用法：
+//     ./t                 跑一遍完整套件（详细输出）
+//     ./t soak            浸泡 3600s（1 小时）后停止
+//     ./t soak 600        浸泡 600s
+//     ./t soak 0          无限浸泡，直到 Ctrl-C
+// ─────────────────────────────────────────────
+int main(int argc, char** argv) {
+    if (argc >= 2 && std::strcmp(argv[1], "soak") == 0) {
+        double secs = 3600.0;                                  // 默认 1 小时
+        if (argc >= 3) secs = std::atof(argv[2]);
+        return soak_run(secs);
+    }
+
+    std::cout << "=== lock_free 完整测试（hp_domain 动态无界 + retire 单例 版）===\n\n";
+    run_full_suite();
     test_global_balance();
 
     std::cout << "\n----------------------------------------\n";
@@ -574,5 +697,7 @@ int main() {
               << "  alive="     << Tracked::alive.load() << "\n";
     std::cout << "Guarded  alive=" << Guarded::alive.load()
               << "   live_hazards=" << live_hazards() << "\n";
+    std::cout << "\n提示：长时间浸泡跑   ./" << (argc ? argv[0] : "t") << " soak [秒数]"
+              << "   （默认 3600s，soak 0 为无限）\n";
     return g_fail == 0 ? 0 : 1;
 }
