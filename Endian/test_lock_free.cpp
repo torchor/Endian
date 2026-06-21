@@ -25,6 +25,7 @@
 #include <atomic>
 #include <iostream>
 #include <memory>
+#include <utility>
 #include <thread>
 #include <vector>
 #include <set>
@@ -286,7 +287,7 @@ static void test_stack_hazard_reclaim() {
 }
 
 // ═════════════════════════════════════════════
-//  Part 2 —— atomic_owner_ptr<T>
+//  Part 2 —— unique_ptr<T>（原 atomic_owner_ptr）
 // ═════════════════════════════════════════════
 
 // Case 10：基本读 / 空指针
@@ -385,6 +386,209 @@ static void test_owner_multi_writer() {
     }
     force_drain();
     TEST("owner: 多写者并发后零泄漏(无双重释放)", Guarded::alive.load() == base);
+}
+
+// ═════════════════════════════════════════════
+//  Part 2.5 —— unique_ptr<T> 移动语义（移动构造 / 移动赋值）
+//   只移动 / 不拷贝（拷贝已 =delete）。要点：所有权唯一转移、源置空、
+//   目标旧值按 hazard 规则回收、自移动安全、无双重释放、无泄漏。
+// ═════════════════════════════════════════════
+
+// Case M1：移动构造 —— 转移所有权，源置空，无拷贝（同一对象地址），无泄漏
+static void test_move_construct() {
+    const long base = Guarded::alive.load();
+    {
+        Owner src(new Guarded(100));
+        const void* raw = nullptr;
+        { auto lk = src.safe_read(); raw = lk.get(); }     // 记录原始对象地址（锁随即释放）
+        Owner dst(std::move(src));                          // 移动构造
+        TEST("move-ctor: 仅转移未新增对象", Guarded::alive.load() == base + 1);
+        { auto lks = src.safe_read(); TEST("move-ctor: 源被置空", !(bool)lks); }
+        auto lkd = dst.safe_read();
+        TEST("move-ctor: 目标获得值",       lkd && lkd->v == 100 && lkd->valid());
+        TEST("move-ctor: 同一对象(无拷贝)",  lkd.get() == raw);
+    }
+    force_drain();
+    TEST("move-ctor: 析构后零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M2：从空 owner 移动构造 —— 源/目标皆空，不崩溃，无泄漏
+static void test_move_construct_from_null() {
+    const long base = Guarded::alive.load();
+    {
+        Owner src(nullptr);
+        Owner dst(std::move(src));
+        auto a = src.safe_read();
+        auto b = dst.safe_read();
+        TEST("move-ctor(null): 源仍空",   !(bool)a);
+        TEST("move-ctor(null): 目标也空", !(bool)b);
+    }
+    force_drain();
+    TEST("move-ctor(null): 零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M3：移动赋值 —— 目标旧值被回收，获得源值，源置空
+static void test_move_assign_reclaims_old() {
+    const long base = Guarded::alive.load();
+    {
+        Owner dst(new Guarded(1));
+        Owner src(new Guarded(2));
+        TEST("move-assign: 赋值前 2 个对象", Guarded::alive.load() == base + 2);
+        dst = std::move(src);                               // dst 旧值(1) 应被回收
+        force_drain();                                      // 无人持锁 → 旧值立即删除
+        TEST("move-assign: 旧值回收后仅剩 1", Guarded::alive.load() == base + 1);
+        { auto lk = dst.safe_read(); TEST("move-assign: 目标获得源值", lk && lk->v == 2 && lk->valid()); }
+        { auto lk = src.safe_read(); TEST("move-assign: 源被置空",     !(bool)lk); }
+    }
+    force_drain();
+    TEST("move-assign: 析构后零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M4：移动赋值到空目标 —— 无多余回收，仅转移
+static void test_move_assign_into_null() {
+    const long base = Guarded::alive.load();
+    {
+        Owner dst(nullptr);
+        Owner src(new Guarded(5));
+        dst = std::move(src);
+        TEST("move-assign(空目标): 仅转移未增减对象", Guarded::alive.load() == base + 1);
+        { auto lk = dst.safe_read(); TEST("move-assign(空目标): 目标获得值", lk && lk->v == 5 && lk->valid()); }
+        { auto lk = src.safe_read(); TEST("move-assign(空目标): 源置空",     !(bool)lk); }
+    }
+    force_drain();
+    TEST("move-assign(空目标): 零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M5：从空源移动赋值 —— 目标旧值回收，目标变空
+static void test_move_assign_from_null() {
+    const long base = Guarded::alive.load();
+    {
+        Owner dst(new Guarded(9));
+        Owner src(nullptr);
+        dst = std::move(src);
+        force_drain();
+        TEST("move-assign(空源): 目标旧值已回收", Guarded::alive.load() == base);
+        auto lk = dst.safe_read();
+        TEST("move-assign(空源): 目标变空", !(bool)lk);
+    }
+    force_drain();
+    TEST("move-assign(空源): 零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M6：自移动赋值 —— if(this!=&v) 短路：不丢值、不双重释放
+static void test_move_assign_self() {
+    const long base = Guarded::alive.load();
+    {
+        Owner p(new Guarded(77));
+        const void* raw = nullptr;
+        { auto lk = p.safe_read(); raw = lk.get(); }
+        Owner& ref = p;
+        p = std::move(ref);                                 // 自移动（经引用规避编译器自赋值告警）
+        force_drain();
+        TEST("move-assign(self): 值未丢失",   Guarded::alive.load() == base + 1);
+        auto lk = p.safe_read();
+        TEST("move-assign(self): 仍同一对象", lk && lk->v == 77 && lk->valid() && lk.get() == raw);
+    }
+    force_drain();
+    TEST("move-assign(self): 零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M7：std::swap —— 组合移动构造 + 两次移动赋值，值互换无泄漏
+static void test_move_swap() {
+    const long base = Guarded::alive.load();
+    {
+        Owner a(new Guarded(1)), b(new Guarded(2));
+        std::swap(a, b);
+        { auto la = a.safe_read(); TEST("move-swap: a 得到 2", la && la->v == 2 && la->valid()); }
+        { auto lb = b.safe_read(); TEST("move-swap: b 得到 1", lb && lb->v == 1 && lb->valid()); }
+        TEST("move-swap: 对象数不变", Guarded::alive.load() == base + 2);
+    }
+    force_drain();
+    TEST("move-swap: 零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M8：移动后源可复用 —— 被移走后重新赋新值正常工作
+static void test_move_then_reuse_source() {
+    const long base = Guarded::alive.load();
+    {
+        Owner src(new Guarded(1));
+        Owner dst(std::move(src));
+        src = new Guarded(2);                               // 移走后对源重新赋值
+        { auto lk = src.safe_read(); TEST("move-reuse: 源可重新赋值", lk && lk->v == 2 && lk->valid()); }
+        { auto lk = dst.safe_read(); TEST("move-reuse: 目标仍持原值", lk && lk->v == 1 && lk->valid()); }
+        TEST("move-reuse: 共 2 个对象", Guarded::alive.load() == base + 2);
+    }
+    force_drain();
+    TEST("move-reuse: 零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M9：移动赋值时目标旧值正被 hazard 保护 → 延迟回收（确定性）
+static void test_move_assign_deferred_reclaim() {
+    const long base = Guarded::alive.load();
+    {
+        Owner dst(new Guarded(11));
+        Owner src(new Guarded(22));
+        {
+            auto lk = dst.safe_read();                      // 保护 dst 旧值 A(11)
+            dst = std::move(src);                           // A 受保护 → 延迟回收
+            force_drain();                                  // 强制回收下 A 仍不应被删
+            TEST("move-assign(defer): 持锁时新旧并存",   Guarded::alive.load() == base + 2);
+            TEST("move-assign(defer): 持锁仍读到有效旧值", lk->v == 11 && lk->valid());
+        }                                                   // lk 释放
+        force_drain();
+        auto lk2 = dst.safe_read();
+        TEST("move-assign(defer): 释放后为新值", lk2 && lk2->v == 22 && lk2->valid());
+    }
+    force_drain();
+    TEST("move-assign(defer): 延迟回收后零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M10：移动进 std::vector —— 故意小容量触发多次扩容移动，值全保留、无泄漏
+//   直接存 Owner（可移动、不可拷贝）；扩容时 vector 用移动构造搬迁元素。
+static void test_move_in_vector() {
+    const long base = Guarded::alive.load();
+    constexpr int N = 200;
+    {
+        std::vector<Owner> v;
+        v.reserve(1);                                       // 故意小 → push 触发多次扩容移动
+        for (int i = 0; i < N; ++i) v.emplace_back(new Guarded(i));
+        TEST("move-vector: 全部就位", Guarded::alive.load() == base + N);
+        int good = 0;
+        for (int i = 0; i < N; ++i) { auto lk = v[i].safe_read(); if (lk && lk->v == i && lk->valid()) ++good; }
+        TEST("move-vector: 扩容移动后值全部保留", good == N);
+    }
+    force_drain();
+    TEST("move-vector: 析构后零泄漏", Guarded::alive.load() == base);
+}
+
+// Case M11：并发读 + 移动赋值写者 —— 走移动赋值路径，无 UAF / 无泄漏
+static void test_move_assign_concurrent() {
+    const long base = Guarded::alive.load();
+    constexpr int READERS = 6, WRITES = 30000;
+    std::atomic<long> reads{0}, invalid{0};
+    {
+        Owner p(new Guarded(0));
+        std::atomic<bool> stop{false};
+        std::vector<std::thread> rs;
+        for (int t = 0; t < READERS; ++t)
+            rs.emplace_back([&]{
+                while (!stop.load(std::memory_order_relaxed)) {
+                    auto lk = p.safe_read();
+                    if (lk) { if (!lk->valid()) invalid.fetch_add(1, std::memory_order_relaxed);
+                              reads.fetch_add(1, std::memory_order_relaxed); }
+                }
+            });
+        for (int i = 1; i <= WRITES; ++i) {
+            Owner tmp(new Guarded(i));
+            p = std::move(tmp);                             // 经移动赋值写入（区别于 operator=(T*)）
+        }
+        stop.store(true, std::memory_order_relaxed);
+        for (auto& th : rs) th.join();
+    }
+    force_drain();
+    TEST("move-assign(并发): 读未读到失效对象(无 UAF)", invalid.load() == 0);
+    TEST("move-assign(并发): 读确实发生",               reads.load() > 0);
+    TEST("move-assign(并发): 并发后零泄漏",             Guarded::alive.load() == base);
 }
 
 // ═════════════════════════════════════════════
@@ -622,6 +826,18 @@ static void run_full_suite() {
     test_owner_deferred_reclaim();
     test_owner_concurrent_read_write();
     test_owner_multi_writer();
+    // Part 2.5: unique_ptr 移动语义
+    test_move_construct();
+    test_move_construct_from_null();
+    test_move_assign_reclaims_old();
+    test_move_assign_into_null();
+    test_move_assign_from_null();
+    test_move_assign_self();
+    test_move_swap();
+    test_move_then_reuse_source();
+    test_move_assign_deferred_reclaim();
+    test_move_in_vector();
+    test_move_assign_concurrent();
     // Part 3: hp_domain 多槽 / 无界增长 / 复用
     test_nested_two_locks();
     test_nested_release_order();
@@ -642,6 +858,8 @@ static void run_soak_round() {
     test_stack_hazard_reclaim();
     test_owner_concurrent_read_write();
     test_owner_multi_writer();
+    test_move_assign_concurrent();       // 移动赋值并发路径：无 UAF / 不漂移
+    test_move_in_vector();               // 扩容移动搬迁：值保留 / 无泄漏
     test_nested_concurrent();
     test_unbounded_deep_nesting();
     test_domain_grows_and_reuses();

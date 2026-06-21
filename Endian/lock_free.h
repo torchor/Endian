@@ -279,15 +279,22 @@ private:
     T *rawPointer;
     std::atomic<void*> &hp;///默认从当前线程的Local_thread中拿，如果已经被使用了则去全局槽中动态临时申请一个
 };
-/// A thread-safe atomic pointer that owns its pointee.
-/// Automatically defers deletion of the old value using hazard pointers,
-/// ensuring no thread is accessing it before it is freed.
+
+/// A thread-safe owning pointer with exclusive ownership (non-copyable, movable).
 ///
-/// Usage:
-///   atomic_owner_ptr<Foo> ptr(new Foo());
-///   auto lock = ptr.safe_read();   // safe concurrent read
-///   lock->bar();                   // access via RAII lock
-///   ptr = new Foo();               // old value safely reclaimed
+/// Unlike std::unique_ptr:
+///   - Pointer replacement (operator=) is atomic and thread-safe.
+///   - Readers must use safe_read() to get a hazard_lock guard,
+///     which guarantees the object stays alive during access
+///     even if another thread replaces or destroys this pointer concurrently.
+///   - Deleted objects are reclaimed only after all readers release their guard.
+///
+/// Example:
+///   lock_free::unique_ptr<Foo> ptr(new Foo());
+///   ptr = new Foo();                 // thread-safe replace
+///   auto lk = ptr.safe_read();       // safe concurrent read
+///   if (lk) lk->bar();              // object guaranteed alive
+///   auto ptr2 = std::move(ptr);      // transfer ownership
 template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct unique_ptr{
     using RawType = std::remove_const_t<T>;
