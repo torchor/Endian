@@ -61,13 +61,22 @@ inline std::atomic<void*>& get_hp_cache_for_current_thread()
     thread_local static hp_owner hazard;
     return hazard.get_pointer();
 }
-
-
+///每个线程最多三个cache slot，不够则动态申请
 inline std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
 {
-    auto&&cache = get_hp_cache_for_current_thread();
-    if (cache.load() == nullptr) {   // ← 槽位空闲，直接用
-        return cache;
+    using fp_t = std::atomic<void*>& (*)();
+    const static fp_t func_list[] = 
+    {///maximum 3 slot cache for per thread
+        &get_hp_cache_for_current_thread<0>,
+        &get_hp_cache_for_current_thread<1>,
+        &get_hp_cache_for_current_thread<2>,
+    };
+    for (auto fp:func_list) 
+    {
+        auto&&cache = fp();
+        if (cache.load() == nullptr) {// ← 槽位空闲，直接用
+            return cache;
+        }
     }
     auto pNew = std::make_unique<hp_owner>();///从全局槽中，临时申请一个新的
     ptr.swap(pNew);
