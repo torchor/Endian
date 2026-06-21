@@ -178,7 +178,7 @@ struct retire_list
         static retire_list v;
         return  v;
     }
-private:
+
     std::atomic<retire_node*> nodes_to_reclaim{};
     std::atomic<int32_t> retire_count{0};
 };
