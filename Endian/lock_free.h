@@ -116,57 +116,63 @@ public:
     }
 };
 
-struct retire_node
+struct retire
 {
-    void* data;
-    retire_node* next;
-    retire_node(void* p):data(p),next(0){}
-    virtual ~retire_node()=default;
-};
-template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
-struct data_to_reclaim:retire_node
-{
-    data_to_reclaim(T* p):retire_node(p){}
-    virtual  ~data_to_reclaim(){delete static_cast<T*>(data);}
-};
-inline std::atomic<retire_node*> nodes_to_reclaim;
-inline std::atomic<uint32_t> retire_count{0};
-inline void add_to_reclaim_list(retire_node* node)
-{
-    node->next=nodes_to_reclaim.load();
-    while(!nodes_to_reclaim.compare_exchange_weak(node->next,node));
-    retire_count.fetch_add(1);
-}
-
-
-template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
-inline void reclaim_later(T* data)
-{
-    add_to_reclaim_list(new data_to_reclaim<T>(data));
-}
-inline void delete_nodes_with_no_hazards(bool force=false)
-{
-    if (!force && retire_count.load() < threshold) return;
-
-    auto current=nodes_to_reclaim.exchange(nullptr);
-    retire_count.store(0);
-
-    auto&& protected_ptrs = hp_owner::hazard_domain.protected_ptrs();
-
-    while(current)
+    struct retire_node
     {
-        auto const next=current->next;
-        if(!protected_ptrs.count(current->data))
-        {
-            delete current;
-        }
-        else
-        {
-            add_to_reclaim_list(current);
-        }
-        current=next;
+        void* data;
+        retire_node* next;
+        retire_node(void* p):data(p),next(0){}
+        virtual ~retire_node()=default;
+    };
+    template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
+    struct data_to_reclaim:retire_node
+    {
+        data_to_reclaim(T* p):retire_node(p){}
+        virtual  ~data_to_reclaim(){delete static_cast<T*>(data);}
+    };
+    
+    inline void add_to_reclaim_list(retire_node* node)
+    {
+        node->next=nodes_to_reclaim.load();
+        while(!nodes_to_reclaim.compare_exchange_weak(node->next,node));
+        retire_count.fetch_add(1);
     }
-}
+
+    template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
+    inline void reclaim_later(T* data)
+    {
+        add_to_reclaim_list(new data_to_reclaim<T>(data));
+    }
+    inline void delete_nodes_with_no_hazards(bool force=false)
+    {
+        if (!force && retire_count.load() < threshold) return;
+
+        auto current=nodes_to_reclaim.exchange(nullptr);
+        retire_count.store(0);
+
+        auto&& protected_ptrs = hp_owner::hazard_domain.protected_ptrs();
+
+        while(current)
+        {
+            auto const next=current->next;
+            if(!protected_ptrs.count(current->data))
+            {
+                delete current;
+            }
+            else
+            {
+                add_to_reclaim_list(current);
+            }
+            current=next;
+        }
+    }
+    
+    std::atomic<retire_node*> nodes_to_reclaim{};
+    std::atomic<uint32_t> retire_count{0};
+};
+
+inline retire g_retire;
 
 template<typename T>
 class stack
@@ -210,13 +216,13 @@ public:
             res.swap(old_head->data);
             if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
             {
-                reclaim_later(old_head);  // 4
+                g_retire.reclaim_later(old_head);  // 4
             }
             else
             {
                 delete old_head;  // 5
             }
-            delete_nodes_with_no_hazards();  // 6
+            g_retire.delete_nodes_with_no_hazards();  // 6
         }
         return res;
     }
@@ -224,7 +230,7 @@ public:
     ~stack()
     {
         while (pop()) {}
-        delete_nodes_with_no_hazards(true);
+        g_retire.delete_nodes_with_no_hazards(true);
     }
 };
 
@@ -289,13 +295,13 @@ private:
         if (auto raw = const_cast<T*>(old)) {
             if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(raw))
             {
-                reclaim_later(raw);
+                g_retire.reclaim_later(raw);
             }
             else
             {
                 delete raw;
             }
-            delete_nodes_with_no_hazards(force);
+            g_retire.delete_nodes_with_no_hazards(force);
         }
     }
     
