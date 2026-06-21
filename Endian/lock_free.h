@@ -167,12 +167,17 @@ struct retire
             current=next;
         }
     }
-    
+   inline static retire& get()
+    {
+        static retire v;
+        return  v;
+    }
+private:
     std::atomic<retire_node*> nodes_to_reclaim{};
     std::atomic<uint32_t> retire_count{0};
 };
 
-inline retire g_retire;
+
 
 template<typename T>
 class stack
@@ -214,15 +219,16 @@ public:
         if(old_head)
         {
             res.swap(old_head->data);
+            auto &&retire_v = retire::get();
             if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
             {
-                g_retire.reclaim_later(old_head);  // 4
+                retire_v.reclaim_later(old_head);  // 4
             }
             else
             {
                 delete old_head;  // 5
             }
-            g_retire.delete_nodes_with_no_hazards();  // 6
+            retire_v.delete_nodes_with_no_hazards();  // 6
         }
         return res;
     }
@@ -230,7 +236,7 @@ public:
     ~stack()
     {
         while (pop()) {}
-        g_retire.delete_nodes_with_no_hazards(true);
+        retire::get().delete_nodes_with_no_hazards(true);
     }
 };
 
@@ -293,15 +299,16 @@ private:
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
         if (auto raw = const_cast<T*>(old)) {
+            auto &&retire_v = retire::get();
             if(hp_owner::hazard_domain.outstanding_hazard_pointers_for(raw))
             {
-                g_retire.reclaim_later(raw);
+                retire_v.reclaim_later(raw);
             }
             else
             {
                 delete raw;
             }
-            g_retire.delete_nodes_with_no_hazards(force);
+            retire_v.delete_nodes_with_no_hazards(force);
         }
     }
     
