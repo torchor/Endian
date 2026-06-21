@@ -156,8 +156,6 @@ struct retire
         if (!force && retire_count.load() < threshold) return;
 
         auto current=nodes_to_reclaim.exchange(nullptr);
-        retire_count.store(0);
-
         auto&& protected_ptrs = hp_owner::hazard_domain.protected_ptrs();
 
         while(current)
@@ -171,6 +169,7 @@ struct retire
             {
                 add_to_reclaim_list(current);
             }
+            retire_count.fetch_sub(1);
             current=next;
         }
     }
