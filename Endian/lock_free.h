@@ -15,7 +15,7 @@
 #include <unordered_set>
 
 namespace lock_free {
-
+constexpr int max_slot_cahce_per_thread  = 3;
 constexpr auto max_hazard_pointers=128;
 constexpr int threshold = 512;
 struct hazard_pointer
@@ -56,28 +56,22 @@ public:
 };
 
 template<uint8_t index=0>
-inline std::atomic<void*>& get_hp_cache_for_current_thread()
+inline std::atomic<void*>* try_get_free_hp_cache()
 {
     thread_local static hp_owner hazard;
-    return hazard.get_pointer();
+    auto& p = hazard.get_pointer();
+    if (p.load() == nullptr)
+        return &p;
+
+    if constexpr (index + 1 < max_slot_cahce_per_thread)
+        return try_get_free_hp_cache<index + 1>();///try to find next
+    else
+        return nullptr;///all used out
 }
-///每个线程最多三个cache slot，不够则动态申请
+
 inline std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
 {
-    using fp_t = std::atomic<void*>& (*)();
-    const static fp_t func_list[] = 
-    {///maximum 3 slot cache for per thread
-        &get_hp_cache_for_current_thread<0>,
-        &get_hp_cache_for_current_thread<1>,
-        &get_hp_cache_for_current_thread<2>,
-    };
-    for (auto fp:func_list) 
-    {
-        auto&&cache = fp();
-        if (cache.load() == nullptr) {// ← 槽位空闲，直接用
-            return cache;
-        }
-    }
+    if (auto p = try_get_free_hp_cache<0>())return *p; //优先 用cache槽
     auto pNew = std::make_unique<hp_owner>();///从全局槽中，临时申请一个新的
     ptr.swap(pNew);
     return  ptr->get_pointer();
