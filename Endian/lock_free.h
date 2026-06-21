@@ -294,6 +294,7 @@ struct atomic_owner_ptr{
     ///safe read
     hazard_lock safe_read(){return hazard_lock(p);}
     
+    atomic_owner_ptr():atomic_owner_ptr(nullptr){}
     atomic_owner_ptr(const T*_p):p(_p){}
     ~atomic_owner_ptr(){set(nullptr, true);}
     
