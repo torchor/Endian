@@ -18,7 +18,7 @@ namespace lock_free {
 constexpr int max_slot_cahce_per_thread  = 3;
 constexpr auto max_hazard_pointers=128;
 constexpr int threshold = 512;
-struct hazard_pointer
+struct hazard_slot
 {
     std::atomic_flag occupied;
     std::atomic<void*> pointer;
@@ -26,9 +26,9 @@ struct hazard_pointer
 
 class hp_owner
 {
-    hazard_pointer* hp;
+    hazard_slot* hp;
 public:
-   inline static hazard_pointer hazard_slots[max_hazard_pointers];
+   inline static hazard_slot hazard_slots[max_hazard_pointers];
     
     hp_owner(hp_owner const&)=delete;
     hp_owner operator=(hp_owner const&)=delete;
