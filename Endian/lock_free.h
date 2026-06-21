@@ -57,8 +57,7 @@ struct hp_domain {
     inline bool outstanding_hazard_pointers_for(void* p)
     {
         for (auto slot = head.load(); slot; slot = slot->next)
-                if (slot->pointer.load() == p)
-                    return true;
+            if (slot->pointer.load() == p)return true;
         return false;
     }
     ~hp_domain() {
