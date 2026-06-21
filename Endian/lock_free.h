@@ -245,7 +245,40 @@ public:
         retire_list::get().delete_nodes_with_no_hazards(true);
     }
 };
+template<typename  T>
+struct hazard_lock
+{
+    using RawType = std::remove_const_t<T>;
+    /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
+    /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
+    explicit hazard_lock(std::atomic<const T*>& src):rawPointer(nullptr),hp(hp_owner::get_hazard_pointer_for_current_thread(p_hp))
+    {
+        auto ptr = src.load();
+        do {
+            rawPointer = ptr;
+            hp.store(const_cast<RawType*>(ptr));
+            ptr = src.load();
+        } while (ptr != rawPointer);
+    }
+    hazard_lock(hazard_lock &&v) noexcept :rawPointer(v.rawPointer),hp(v.hp),p_hp(std::move(v.p_hp)){v.rawPointer = nullptr;}
+    hazard_lock(const hazard_lock&)=delete;
+    hazard_lock& operator=(const hazard_lock&)=delete;
 
+    T* operator ->() const {return rawPointer;}
+    T& operator*()   const { return *rawPointer; }
+    T* get()         const { return rawPointer; }
+    explicit operator bool() const { return rawPointer != nullptr; }
+
+    ~hazard_lock(){
+        if (rawPointer) {
+            hp.store(nullptr); ///  当声明完成，清除风险指针
+        }
+    }
+private:
+    std::unique_ptr<hp_owner> p_hp{};//全局槽中动态临时申请一个,当前hazard_lock对象释放后，将自动还回全局槽中
+    T *rawPointer;
+    std::atomic<void*> &hp;///默认从当前线程的Local_thread中拿，如果已经被使用了则去全局槽中动态临时申请一个
+};
 /// A thread-safe atomic pointer that owns its pointee.
 /// Automatically defers deletion of the old value using hazard pointers,
 /// ensuring no thread is accessing it before it is freed.
@@ -257,42 +290,9 @@ public:
 ///   ptr = new Foo();               // old value safely reclaimed
 template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct atomic_owner_ptr{
-    struct hazard_lock
-    {
-        /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
-        /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
-        explicit hazard_lock(std::atomic<const T*>& src)
-            :rawPointer(nullptr),hp(hp_owner::get_hazard_pointer_for_current_thread(p_hp))
-        {
-            const T* ptr = src.load();
-            do {
-                rawPointer = ptr;
-                hp.store(const_cast<T*>(ptr));
-                ptr = src.load();
-            } while (ptr != rawPointer);
-        }
-        hazard_lock(hazard_lock &&v) noexcept :rawPointer(v.rawPointer),hp(v.hp),p_hp(std::move(v.p_hp)){v.rawPointer = nullptr;}
-        hazard_lock(const hazard_lock&)=delete;
-        hazard_lock& operator=(const hazard_lock&)=delete;
-
-        const T* operator ->() const {return rawPointer;}
-        const T& operator*()   const { return *rawPointer; }
-        const T* get()         const { return rawPointer; }
-        explicit operator bool() const { return rawPointer != nullptr; }
-
-        ~hazard_lock(){
-            if (rawPointer) {
-                hp.store(nullptr); ///  当声明完成，清除风险指针
-            }
-        }
-    private:
-        std::unique_ptr<hp_owner> p_hp{};//全局槽中动态临时申请一个,当前hazard_lock对象释放后，将自动还回全局槽中
-        const T *rawPointer;
-        std::atomic<void*> &hp;///默认从当前线程的Local_thread中拿，如果已经被使用了则去全局槽中动态临时申请一个
-    };
-    
+    using hz_lock = hazard_lock<const T>;
     ///safe read
-    hazard_lock safe_read(){return hazard_lock(p);}
+    hz_lock safe_read(){return hz_lock(p);}
     
     atomic_owner_ptr():atomic_owner_ptr(nullptr){}
     atomic_owner_ptr(const T*_p):p(_p){}
