@@ -226,14 +226,7 @@ public:
         {
             res.swap(old_head->data);
             auto &&retire_v = retire_list::get();
-            if(hp_owner::hazard_domain.ptr_is_protected(old_head)) // 3 在删除之前 对风险指针引用的节点进行检查
-            {
-                retire_v.reclaim_later(old_head);  // 4
-            }
-            else
-            {
-                delete old_head;  // 5
-            }
+            retire_v.reclaim_later(old_head);
             retire_v.delete_nodes_with_no_hazards();  // 6
         }
         return res;
@@ -325,14 +318,7 @@ private:
         while (!p.compare_exchange_weak(old, _p));
         if (auto raw = const_cast<RawType*>(old)) {
             auto &&retire_v = retire_list::get();
-            if(hp_owner::hazard_domain.ptr_is_protected(raw))
-            {
-                retire_v.reclaim_later(raw);
-            }
-            else
-            {
-                delete raw;
-            }
+            retire_v.reclaim_later(raw);
             retire_v.delete_nodes_with_no_hazards(force);
         }
     }
