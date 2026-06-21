@@ -91,29 +91,31 @@ public:
     {
         hazard_domain.release(hp);
     }
+    
+    
+    template<uint8_t index=0>
+    inline static std::atomic<void*>* try_get_free_hp_cache()
+    {
+        thread_local static hp_owner hazard;
+        auto& p = hazard.get_pointer();
+        if (p.load() == nullptr)
+            return &p;
+
+        if constexpr (index + 1 < max_slot_cahce_per_thread)
+            return try_get_free_hp_cache<index + 1>();///try to find next
+        else
+            return nullptr;///all used out
+    }
+
+    inline static std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
+    {
+        if (auto p = try_get_free_hp_cache<0>())return *p; //优先 用cache槽
+        auto pNew = std::make_unique<hp_owner>();///从全局槽中，临时申请一个新的
+        ptr.swap(pNew);
+        return  ptr->get_pointer();
+    }
 };
 
-template<uint8_t index=0>
-inline std::atomic<void*>* try_get_free_hp_cache()
-{
-    thread_local static hp_owner hazard;
-    auto& p = hazard.get_pointer();
-    if (p.load() == nullptr)
-        return &p;
-
-    if constexpr (index + 1 < max_slot_cahce_per_thread)
-        return try_get_free_hp_cache<index + 1>();///try to find next
-    else
-        return nullptr;///all used out
-}
-
-inline std::atomic<void*>& get_hazard_pointer_for_current_thread(std::unique_ptr<hp_owner>&ptr)
-{
-    if (auto p = try_get_free_hp_cache<0>())return *p; //优先 用cache槽
-    auto pNew = std::make_unique<hp_owner>();///从全局槽中，临时申请一个新的
-    ptr.swap(pNew);
-    return  ptr->get_pointer();
-}
 struct retire_node
 {
     void* data;
@@ -188,7 +190,7 @@ public:
     inline std::shared_ptr<T> pop()
     {
         std::unique_ptr<hp_owner> p_hp;///如果是动态申请的槽，析构时自动还到全局池中
-        std::atomic<void*>&hp=get_hazard_pointer_for_current_thread(p_hp);
+        std::atomic<void*>&hp=hp_owner::get_hazard_pointer_for_current_thread(p_hp);
         node* old_head=head.load();
         do
         {
@@ -242,7 +244,7 @@ struct atomic_owner_ptr{
         /// 风险指针获取协议：写入风险槽后回读源原子量校验，直到“槽内==源”为止；
         /// 否则在写槽之前对象可能已被并发写者释放，造成 use-after-free。
         explicit hazard_lock(std::atomic<const T*>& src)
-            :rawPointer(nullptr),hp(get_hazard_pointer_for_current_thread(p_hp))
+            :rawPointer(nullptr),hp(hp_owner::get_hazard_pointer_for_current_thread(p_hp))
         {
             const T* ptr = src.load();
             do {
