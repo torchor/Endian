@@ -299,6 +299,10 @@ struct unique_ptr{
     unique_ptr(T *_p):p(_p){}
     ~unique_ptr(){set(nullptr, true);}
     
+    unique_ptr(const unique_ptr&) = delete;
+    unique_ptr& operator=(const unique_ptr&) = delete;
+
+    
     unique_ptr& operator=(T*_p) {set(_p, false);return *this;}
     
 private:
