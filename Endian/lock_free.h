@@ -17,28 +17,33 @@
 namespace lock_free {
 constexpr int max_slot_cahce_per_thread  = 3;
 constexpr int threshold = 512;
+constexpr int batch_ctn_slot = 8;
+
 struct hazard_slot
 {
     std::atomic_flag occupied{};
     std::atomic<void*> pointer{};
-    hazard_slot*       next{nullptr};
 };
-
+struct hazard_batch
+{
+    hazard_slot slots[batch_ctn_slot]{};
+    hazard_batch*       next{nullptr};
+};
 
 struct hp_domain {
     
     hazard_slot* acquire()
     {
-        for (auto p = head.load(); p; p = p->next) {
-            if (!p->occupied.test_and_set())
-                return p;
-        }
-       
-        auto* slot = new hazard_slot();
-        slot->occupied.test_and_set();
-        slot->next = head.load();
-        while (!head.compare_exchange_weak(slot->next, slot));
-        return slot;
+        for (auto p = head.load(); p; p = p->next)
+            for (auto&&slot:p->slots)
+                if (!slot.occupied.test_and_set())  return &slot;
+            
+        auto* batch = new hazard_batch();
+        auto&& slot = batch->slots[0];
+        slot.occupied.test_and_set();
+        batch->next = head.load();
+        while (!head.compare_exchange_weak(batch->next, batch));
+        return &slot;
     }
 
     void release(hazard_slot* slot) {
@@ -49,15 +54,17 @@ struct hp_domain {
     std::unordered_set<void*> protected_ptrs() {
         std::unordered_set<void*> result;
         for (auto p = head.load(); p; p = p->next)
-            if (auto ptr = p->pointer.load())
+            for (auto&&slot:p->slots)
+                if (auto ptr = slot.pointer.load())
                 result.insert(ptr);
         return result;
     }
 
-    inline bool ptr_is_protected(void* p)
+    inline bool ptr_is_protected(void* ptr)
     {
-        for (auto slot = head.load(); slot; slot = slot->next)
-            if (slot->pointer.load() == p)return true;
+        for (auto p = head.load(); p; p = p->next)
+            for (auto&&slot:p->slots)
+                if (slot.pointer.load() == ptr)return true;
         return false;
     }
     ~hp_domain() {
@@ -70,7 +77,7 @@ struct hp_domain {
     }
 
 private:
-    std::atomic<hazard_slot*> head{nullptr};
+    std::atomic<hazard_batch*> head{nullptr};
 };
 
 class hp_owner
