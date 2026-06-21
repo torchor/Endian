@@ -63,7 +63,7 @@ inline std::atomic<void*>* try_get_free_hp_cache()
     if (p.load() == nullptr)
         return &p;
 
-    if constexpr (index + 1 < max_slot_cahce_per_thread)
+    if constexpr (index  < max_slot_cahce_per_thread)
         return try_get_free_hp_cache<index + 1>();///try to find next
     else
         return nullptr;///all used out
