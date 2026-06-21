@@ -114,6 +114,16 @@ static size_t live_hazards() {
 static void force_drain() {
     for (int i = 0; i < 3; ++i) hp::retire_list::get().delete_nodes_with_no_hazards(true);
 }
+// retire_count 计数器当前值（公开字段）
+static int32_t retire_count_val() {
+    return hp::retire_list::get().retire_count.load();
+}
+// 实际遍历 nodes_to_reclaim 得到的真链表长度（仅在静默/单线程下稳定）
+static size_t retire_list_len() {
+    size_t n = 0;
+    for (auto p = hp::retire_list::get().nodes_to_reclaim.load(); p; p = p->next) ++n;
+    return n;
+}
 
 // ═════════════════════════════════════════════
 //  Part 1 —— stack<T>
@@ -532,6 +542,58 @@ static void test_domain_grows_and_reuses() {
 }
 
 // ═════════════════════════════════════════════
+//  Part 3.5 —— retire_list 计数(retire_count) 正确性
+//   验证“计数器 == 实际链表长度”，以及并发后不漂移。
+// ═════════════════════════════════════════════
+
+// Case 21：单线程下 计数器 == 实际遍历长度（add 与 drain 的增减都对）
+static void test_retire_count_single_thread() {
+    auto& r = hp::retire_list::get();
+    for (int i = 0; i < 5; ++i) r.delete_nodes_with_no_hazards(true);   // 先静默到基线
+    TEST("retire: 基线 count == 链表长", retire_count_val() == (int32_t)retire_list_len());
+
+    const int32_t base_cnt = retire_count_val();
+    const long    base_al  = Tracked::alive.load();
+    constexpr int K = 200;                                  // < threshold(512)，不触发自动回收
+    for (int i = 0; i < K; ++i) r.reclaim_later(new Tracked(i));   // 无 hazard，纯入队
+
+    TEST("retire: 入队 K 个后 count == base+K", retire_count_val() == base_cnt + K);
+    TEST("retire: count 等于实际链表长度",       retire_count_val() == (int32_t)retire_list_len());
+    TEST("retire: K 个对象此刻存活",             Tracked::alive.load() == base_al + K);
+
+    r.delete_nodes_with_no_hazards(true);                  // 无 hazard → 全部删除
+    TEST("retire: drain 后 count 回到 base",     retire_count_val() == base_cnt);
+    TEST("retire: drain 后链表长度回到 base",     (int32_t)retire_list_len() == base_cnt);
+    TEST("retire: drain 后对象全部析构",         Tracked::alive.load() == base_al);
+}
+
+// Case 22：多线程并发 入队 + 并发 drain，静默后 计数器不漂移（== 实际长度 == 0）
+static void test_retire_count_concurrent() {
+    auto& r = hp::retire_list::get();
+    for (int i = 0; i < 5; ++i) r.delete_nodes_with_no_hazards(true);
+    const long base_al = Tracked::alive.load();
+
+    constexpr int THREADS = 8, PER = 20000;
+    std::vector<std::thread> ts;
+    for (int t = 0; t < THREADS; ++t)
+        ts.emplace_back([&]{
+            for (int i = 0; i < PER; ++i) {
+                r.reclaim_later(new Tracked(i));               // 并发入队(fetch_add)
+                if ((i & 63) == 0) r.delete_nodes_with_no_hazards(true);  // 并发出队(fetch_sub)
+            }
+        });
+    for (auto& th : ts) th.join();
+
+    for (int i = 0; i < 5; ++i) r.delete_nodes_with_no_hazards(true);     // 最终静默
+
+    // 静默后：计数器必须 == 实际链表长度 == 0（否则 fetch_add/fetch_sub 配平有 bug）
+    TEST("retire: 并发后 count == 实际链表长度", retire_count_val() == (int32_t)retire_list_len());
+    TEST("retire: 并发后 count 归零(无漂移)",     retire_count_val() == 0);
+    TEST("retire: 并发后链表清空",               retire_list_len() == 0);
+    TEST("retire: 并发入队/出队后零泄漏",         Tracked::alive.load() == base_al);
+}
+
+// ═════════════════════════════════════════════
 //  Part 4 —— 全局收尾断言
 // ═════════════════════════════════════════════
 static void test_global_balance() {
@@ -567,6 +629,9 @@ static void run_full_suite() {
     test_repeated_nesting();
     test_nested_concurrent();
     test_domain_grows_and_reuses();
+    // Part 3.5: retire_count 计数正确性
+    test_retire_count_single_thread();
+    test_retire_count_concurrent();
 }
 
 // soak 模式只跑“并发/回收/增长”重负载用例（确定性单线程用例无需反复跑）
@@ -580,6 +645,8 @@ static void run_soak_round() {
     test_nested_concurrent();
     test_unbounded_deep_nesting();
     test_domain_grows_and_reuses();
+    test_retire_count_single_thread();   // 每轮校验计数器与真链表长度一致
+    test_retire_count_concurrent();      // 并发入队/出队后计数不漂移
 }
 
 // ─────────────────────────────────────────────
@@ -625,13 +692,21 @@ static int soak_run(double limit_seconds) {
 
         // —— 每轮收尾必须回到基线 ——
         force_drain();
-        const long  ta = Tracked::alive.load();
-        const long  ga = Guarded::alive.load();
-        const size_t hz = live_hazards();
+        const long    ta = Tracked::alive.load();
+        const long    ga = Guarded::alive.load();
+        const size_t  hz = live_hazards();
+        const int32_t rc = retire_count_val();          // retire_count 计数器
+        const size_t  rl = retire_list_len();           // 实际链表长度
         if (ta != 0 || ga != 0 || hz != 0) {
             std::printf("\n[SOAK-FAIL] round %ld 不变量被破坏(疑似泄漏/回收异常): "
                         "Tracked.alive=%ld Guarded.alive=%ld live_hazards=%zu\n",
                         round, ta, ga, hz);
+            return 1;
+        }
+        if (rc != 0 || rl != 0 || (size_t)rc != rl) {   // 计数器漂移 / 与真链表长度不一致
+            std::printf("\n[SOAK-FAIL] round %ld retire 计数异常: "
+                        "retire_count=%d 实际链表长度=%zu (静默后两者都应为 0)\n",
+                        round, rc, rl);
             return 1;
         }
         if (g_fail != 0) {
@@ -648,8 +723,8 @@ static int soak_run(double limit_seconds) {
         // 每 ~15s 一次心跳
         if (std::chrono::duration<double>(now - beat).count() >= 15.0) {
             std::printf("[soak] t=%6.0fs round=%-7ld asserts=%-10ld alive(T/G)=%ld/%ld "
-                        "hz=%zu rss=%zuKB drift=%+ldKB\n",
-                        elapsed, round, g_pass, ta, ga, hz, rss,
+                        "hz=%zu retire(cnt/len)=%d/%zu rss=%zuKB drift=%+ldKB\n",
+                        elapsed, round, g_pass, ta, ga, hz, rc, rl, rss,
                         (long)rss - (long)rss_first);
             std::fflush(stdout);
             beat = now;
