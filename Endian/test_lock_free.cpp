@@ -100,7 +100,7 @@ std::atomic<long> Guarded::alive{0};
 // ─────────────────────────────────────────────
 namespace hp = lock_free;
 using Owner = hp::atomic_owner_ptr<Guarded>;
-using Lock  = Owner::hazard_lock;
+using Lock  = Owner::hz_lock;
 
 // 某指针当前是否被任一 hazard 槽保护
 static bool out(const void* p) {
