@@ -289,17 +289,17 @@ private:
 ///   lock->bar();                   // access via RAII lock
 ///   ptr = new Foo();               // old value safely reclaimed
 template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
-struct atomic_owner_ptr{
+struct unique_ptr{
     using RawType = std::remove_const_t<T>;
     using hz_lock = hazard_lock<T>;
     ///safe read
     hz_lock safe_read(){return hz_lock(p);}
     
-    atomic_owner_ptr():atomic_owner_ptr(nullptr){}
-    atomic_owner_ptr(T *_p):p(_p){}
-    ~atomic_owner_ptr(){set(nullptr, true);}
+    unique_ptr():unique_ptr(nullptr){}
+    unique_ptr(T *_p):p(_p){}
+    ~unique_ptr(){set(nullptr, true);}
     
-    atomic_owner_ptr& operator=(T*_p) {set(_p, false);return *this;}
+    unique_ptr& operator=(T*_p) {set(_p, false);return *this;}
     
 private:
     void set(T*_p,bool force)

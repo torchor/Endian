@@ -99,7 +99,7 @@ std::atomic<long> Guarded::alive{0};
 // 针对 hp_domain / retire 的辅助
 // ─────────────────────────────────────────────
 namespace hp = lock_free;
-using Owner = hp::atomic_owner_ptr<Guarded>;
+using Owner = hp::unique_ptr<Guarded>;
 using Lock  = Owner::hz_lock;
 
 // 某指针当前是否被任一 hazard 槽保护
