@@ -298,7 +298,13 @@ struct unique_ptr{
     unique_ptr():unique_ptr(nullptr){}
     unique_ptr(T *_p):p(_p){}
     ~unique_ptr(){set(nullptr, true);}
-    
+    unique_ptr(unique_ptr&& v) noexcept: p(v.p.exchange(nullptr)){}
+
+    unique_ptr& operator=(unique_ptr&& v) noexcept
+    {
+        if (this != &v) {set(v.p.exchange(nullptr), false);}
+        return *this;
+    }
     unique_ptr(const unique_ptr&) = delete;
     unique_ptr& operator=(const unique_ptr&) = delete;
 
