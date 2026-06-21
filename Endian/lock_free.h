@@ -113,7 +113,7 @@ inline bool outstanding_hazard_pointers_for(void* p)
 template<typename T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 inline void reclaim_later(T* data)
 {
-    add_to_reclaim_list(reinterpret_cast<retire_node*>(new data_to_reclaim<T>(data)));
+    add_to_reclaim_list(new data_to_reclaim<T>(data));
 }
 inline void delete_nodes_with_no_hazards(bool force=false)
 {
