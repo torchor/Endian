@@ -297,27 +297,27 @@ struct unique_ptr{
     
     unique_ptr():unique_ptr(nullptr){}
     unique_ptr(T *_p):p(_p){}
-    ~unique_ptr(){set(nullptr, true);}
+    ~unique_ptr(){set(nullptr);}
     unique_ptr(unique_ptr&& v) noexcept: p(v.p.exchange(nullptr)){}
 
-    unique_ptr& operator=(unique_ptr&& v) noexcept
+    unique_ptr& operator=(unique_ptr&& v)
     {
-        if (this != &v) {set(v.p.exchange(nullptr), force_reclaim);}
+        if (this != &v) {set(v.p.exchange(nullptr));}
         return *this;
     }
     unique_ptr(const unique_ptr&) = delete;
     unique_ptr& operator=(const unique_ptr&) = delete;
-    unique_ptr& operator=(T*_p) {set(_p, force_reclaim);return *this;}
+    unique_ptr& operator=(T*_p) {set(_p);return *this;}
     
 private:
-    void set(T*_p,bool force)
+    void set(T*_p)
     {
         auto old = p.load();
         while (!p.compare_exchange_weak(old, _p));
         if (auto raw = const_cast<RawType*>(old)) {
             auto &&retire_v = retire_list::get();
             retire_v.reclaim_later(raw);
-            retire_v.delete_nodes_with_no_hazards(force);
+            retire_v.delete_nodes_with_no_hazards(force_reclaim);
         }
     }
     
