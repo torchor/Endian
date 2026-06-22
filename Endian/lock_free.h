@@ -15,7 +15,7 @@
 #include <unordered_set>
 
 namespace lock_free {
-constexpr int max_slot_cahce_per_thread  = 3;
+constexpr int max_slot_cahce_per_thread  = 4;
 constexpr int threshold = 512;
 constexpr int batch_ctn_slot = 8;
 
@@ -288,7 +288,7 @@ private:
 ///   auto lk = ptr.safe_read();       // safe concurrent read
 ///   if (lk) lk->bar();              // object guaranteed alive
 ///   auto ptr2 = std::move(ptr);      // transfer ownership
-template<typename  T,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
+template<typename  T,bool force_reclaim = false,typename = std::enable_if_t<!std::is_void_v<T> && !std::is_pointer<T>::value >>
 struct unique_ptr{
     using RawType = std::remove_const_t<T>;
     using hz_lock = hazard_lock<T>;
@@ -302,14 +302,12 @@ struct unique_ptr{
 
     unique_ptr& operator=(unique_ptr&& v) noexcept
     {
-        if (this != &v) {set(v.p.exchange(nullptr), false);}
+        if (this != &v) {set(v.p.exchange(nullptr), force_reclaim);}
         return *this;
     }
     unique_ptr(const unique_ptr&) = delete;
     unique_ptr& operator=(const unique_ptr&) = delete;
-
-    
-    unique_ptr& operator=(T*_p) {set(_p, false);return *this;}
+    unique_ptr& operator=(T*_p) {set(_p, force_reclaim);return *this;}
     
 private:
     void set(T*_p,bool force)
